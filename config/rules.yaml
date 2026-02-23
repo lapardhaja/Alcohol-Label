@@ -1,0 +1,40 @@
+# TTB Label Verification - Rule thresholds and patterns
+# Tune these without code changes.
+
+similarity:
+  brand_class_pass: 0.95      # above = pass (e.g. "Stones Throw" vs "Stones Throw")
+  brand_class_review: 0.80    # between review and pass = needs_review (nuance)
+  # below brand_class_review = fail
+
+abv:
+  pattern: '\d+(\.\d+)?\s*%\s*(Alc\.?/Vol\.?|ALC/VOL|Alcohol by volume)?'
+  proof_pattern: '\d+\s*(Proof|PROOF)'
+
+net_contents:
+  pattern: '(\d+(?:\.\d+)?)\s*(mL|ml|L)'
+  standard_of_fill_ml: [50, 100, 200, 375, 500, 750, 1000, 1750]
+
+warning:
+  # Exact required text (GOVERNMENT WARNING in caps, rest as specified)
+  government_warning_lead: "GOVERNMENT WARNING:"
+  full_statement: |
+    GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects. (2) Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems.
+  # Allow minor whitespace/line-break variation
+  normalize_whitespace: true
+
+origin:
+  bottler_patterns:
+    - "Bottled by"
+    - "Distilled by"
+    - "Produced by"
+  importer_patterns:
+    - "Imported by"
+  country_pattern: "Product of (.+)"
+
+conditional_statements:
+  sulfites: "Contains sulfites"
+  fd_c_yellow_5: "FD&C Yellow No. 5"
+  carmine: "Carmine"
+  wood_treatment: "Treated with"
+  age_statement: "aged"
+  neutral_spirits: "neutral spirits"

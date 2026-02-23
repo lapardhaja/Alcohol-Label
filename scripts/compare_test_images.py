@@ -2,6 +2,7 @@
 Run pipeline on each test image and compare extracted output to expected (from batch_test.csv).
 Usage: from project root, run: python -m scripts.compare_test_images
 """
+
 from __future__ import annotations
 
 import sys
@@ -140,12 +141,24 @@ def main():
 
     # Possible filenames per test
     candidates = [
-        "test_1.jpg", "test_1.png", "test_1.jpeg",
-        "test_2.jpg", "test_2.png", "test_2.jpeg",
-        "test_3.jpg", "test_3.png", "test_3.jpeg",
-        "test_4.jpg", "test_4.png", "test_4.jpeg",
-        "test_5.jpg", "test_5.png", "test_5.jpeg",
-        "test_6.jpg", "test_6.png", "test_6.jpeg",
+        "test_1.jpg",
+        "test_1.png",
+        "test_1.jpeg",
+        "test_2.jpg",
+        "test_2.png",
+        "test_2.jpeg",
+        "test_3.jpg",
+        "test_3.png",
+        "test_3.jpeg",
+        "test_4.jpg",
+        "test_4.png",
+        "test_4.jpeg",
+        "test_5.jpg",
+        "test_5.png",
+        "test_5.jpeg",
+        "test_6.jpg",
+        "test_6.png",
+        "test_6.jpeg",
     ]
 
     found = {}
@@ -212,21 +225,46 @@ def main():
                     app_val = ""
                 ext_display = ext_val or "(empty)"
                 exp_display = app_val or "(none)"
-                match = "OK" if ext_val and (not app_val or app_val.lower() in ext_val.lower() or ext_val.lower() in app_val.lower()) else "DIFF"
+                match = (
+                    "OK"
+                    if ext_val
+                    and (
+                        not app_val
+                        or app_val.lower() in ext_val.lower()
+                        or ext_val.lower() in app_val.lower()
+                    )
+                    else "DIFF"
+                )
                 # Stricter: for brand/class/ABV/net we want meaningful match
-                if field_key in ("brand_name", "class_type", "alcohol_pct", "net_contents") and app_val:
+                if (
+                    field_key
+                    in ("brand_name", "class_type", "alcohol_pct", "net_contents")
+                    and app_val
+                ):
                     if field_key == "alcohol_pct":
                         match = "OK" if ext_val == app_val else "DIFF"
                     elif field_key == "brand_name":
-                        match = "OK" if ext_val and app_val and ext_val.upper().replace(" ", "") == app_val.upper().replace(" ", "") or app_val.upper() in ext_val.upper() else "DIFF"
+                        match = (
+                            "OK"
+                            if ext_val
+                            and app_val
+                            and ext_val.upper().replace(" ", "")
+                            == app_val.upper().replace(" ", "")
+                            or app_val.upper() in ext_val.upper()
+                            else "DIFF"
+                        )
                     elif field_key == "net_contents":
                         match = "OK" if ext_val and app_val else "DIFF"
 
-            print(f"  {label}: extracted={ext_display!r}  expected={exp_display!r}  [{match}]")
+            print(
+                f"  {label}: extracted={ext_display!r}  expected={exp_display!r}  [{match}]"
+            )
 
         # Rule summary
         counts = result.get("counts", {})
-        print(f"  Rules: pass={counts.get('pass', 0)}  review={counts.get('needs_review', 0)}  fail={counts.get('fail', 0)}  -> {result.get('overall_status', '?')}")
+        print(
+            f"  Rules: pass={counts.get('pass', 0)}  review={counts.get('needs_review', 0)}  fail={counts.get('fail', 0)}  -> {result.get('overall_status', '?')}"
+        )
 
     print("\n" + "=" * 80)
 

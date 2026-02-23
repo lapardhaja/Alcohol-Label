@@ -284,6 +284,9 @@ def _render_single_result(result: dict, image_bytes: bytes | None):
     overall = result.get("overall_status", "—")
     counts = result.get("counts", {})
 
+    if result.get("ocr_fallback_warning"):
+        st.warning(result["ocr_fallback_warning"])
+
     css_class = {
         "Ready to approve": "status-pass",
         "Needs review": "status-review",

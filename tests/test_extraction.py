@@ -318,3 +318,36 @@ def test_class_finds_barleywine(ocr_blocks_barleywine):
 def test_bottler_brewed_and_bottled(ocr_blocks_barleywine):
     out = extract_fields(ocr_blocks_barleywine)
     assert "BREWED" in out["bottler"]["value"].upper() or "Tiger" in out["bottler"]["value"]
+
+
+# ---------------------------------------------------------------------------
+# Brand truncation at suffix word
+# ---------------------------------------------------------------------------
+
+def test_brand_truncates_at_suffix_word():
+    """Brand suffix like DISTILLERY should truncate trailing text (city, state, etc.)."""
+    blocks = [
+        {"text": "ABC DISTILLERY FREDERICK, MD", "bbox": [10, 10, 300, 50], "confidence": 92},
+        {"text": "Bourbon", "bbox": [10, 55, 100, 75], "confidence": 88},
+    ]
+    out = extract_fields(blocks)
+    brand = out["brand_name"]["value"].upper()
+    assert "ABC DISTILLERY" in brand
+    assert "FREDERICK" not in brand
+
+def test_brand_truncates_brewery_suffix():
+    blocks = [
+        {"text": "TIGER BREWING CO PORTLAND OR", "bbox": [10, 10, 400, 50], "confidence": 92},
+        {"text": "Ale", "bbox": [10, 55, 60, 75], "confidence": 88},
+    ]
+    out = extract_fields(blocks)
+    brand = out["brand_name"]["value"].upper()
+    assert "PORTLAND" not in brand
+
+def test_brand_keeps_full_when_no_trailing_text():
+    blocks = [
+        {"text": "ABC DISTILLERY", "bbox": [10, 10, 200, 50], "confidence": 92},
+        {"text": "Bourbon", "bbox": [10, 55, 100, 75], "confidence": 88},
+    ]
+    out = extract_fields(blocks)
+    assert out["brand_name"]["value"].upper() == "ABC DISTILLERY"

@@ -2,6 +2,7 @@
 Field extraction from OCR blocks using spatial heuristics.
 Returns dict of field name -> { "value", "bbox" }.
 """
+
 from __future__ import annotations
 
 import re
@@ -11,6 +12,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Spatial helpers
 # ---------------------------------------------------------------------------
+
 
 def _bbox_height(b: dict) -> int:
     box = b.get("bbox", [0, 0, 0, 0])
@@ -79,25 +81,66 @@ _BOTTLER_HEADER_RE = re.compile(
 )
 
 # Brand suffixes kept in the brand name (domain-specific)
-_BRAND_SUFFIXES = frozenset({
-    "DISTILLERY", "DISTILLERS", "BREWING", "BREWERY", "WINERY", "VINEYARDS",
-    "CELLARS", "IMPORTS", "SPIRITS", "ESTATES",
-})
+_BRAND_SUFFIXES = frozenset(
+    {
+        "DISTILLERY",
+        "DISTILLERS",
+        "BREWING",
+        "BREWERY",
+        "WINERY",
+        "VINEYARDS",
+        "CELLARS",
+        "IMPORTS",
+        "SPIRITS",
+        "ESTATES",
+    }
+)
 
 # Corporate suffixes stripped from brand (generic legal forms)
-_CORP_SUFFIXES = frozenset({
-    "COMPANY", "CO", "INC", "LLC", "LTD", "CORP", "CORPORATION",
-})
+_CORP_SUFFIXES = frozenset(
+    {
+        "COMPANY",
+        "CO",
+        "INC",
+        "LLC",
+        "LTD",
+        "CORP",
+        "CORPORATION",
+    }
+)
 
 _ALL_COMPANY_SUFFIXES = _BRAND_SUFFIXES | _CORP_SUFFIXES | {"RESERVE", "SELECTION"}
 
-_WARNING_WORDS = frozenset({
-    "GOVERNMENT", "WARNING", "ACCORDING", "SURGEON", "GENERAL", "WOMEN",
-    "SHOULD", "DRINK", "ALCOHOLIC", "BEVERAGES", "DURING", "PREGNANCY",
-    "BECAUSE", "RISK", "BIRTH", "DEFECTS", "CONSUMPTION", "IMPAIRS",
-    "ABILITY", "DRIVE", "CAR", "OPERATE", "MACHINERY", "CAUSE", "HEALTH",
-    "PROBLEMS",
-})
+_WARNING_WORDS = frozenset(
+    {
+        "GOVERNMENT",
+        "WARNING",
+        "ACCORDING",
+        "SURGEON",
+        "GENERAL",
+        "WOMEN",
+        "SHOULD",
+        "DRINK",
+        "ALCOHOLIC",
+        "BEVERAGES",
+        "DURING",
+        "PREGNANCY",
+        "BECAUSE",
+        "RISK",
+        "BIRTH",
+        "DEFECTS",
+        "CONSUMPTION",
+        "IMPAIRS",
+        "ABILITY",
+        "DRIVE",
+        "CAR",
+        "OPERATE",
+        "MACHINERY",
+        "CAUSE",
+        "HEALTH",
+        "PROBLEMS",
+    }
+)
 
 
 _LABEL_MARKER_RE = re.compile(
@@ -121,7 +164,22 @@ def _is_junk(text: str) -> bool:
     upper = t.upper()
     if upper in _WARNING_WORDS:
         return True
-    if upper in {"AND", "THE", "OF", "OR", "BY", "NOT", "TO", "A", "IN", "ON", "AT", "FOR", "IT", "IS"}:
+    if upper in {
+        "AND",
+        "THE",
+        "OF",
+        "OR",
+        "BY",
+        "NOT",
+        "TO",
+        "A",
+        "IN",
+        "ON",
+        "AT",
+        "FOR",
+        "IT",
+        "IS",
+    }:
         return True
     return False
 
@@ -132,55 +190,147 @@ def _is_junk(text: str) -> bool:
 
 _CLASS_KEYWORDS = (
     # --- Distilled Spirits (27 CFR Part 5 / TTB Spirits BAM Ch4) ---
-    "Vodka", "Gin", "Distilled Gin", "Compounded Gin", "Redistilled Gin",
-    "Rum", "Tequila", "Mezcal",
-    "Whiskey", "Whisky", "Bourbon", "Bourbon Whisky", "Bourbon Whiskey",
-    "Rye Whisky", "Rye Whiskey", "Wheat Whisky", "Wheat Whiskey",
-    "Malt Whisky", "Malt Whiskey", "Corn Whisky", "Corn Whiskey",
-    "Straight Bourbon Whisky", "Straight Bourbon Whiskey",
-    "Straight Rye Whisky", "Straight Rye Whiskey",
-    "Straight Wheat Whisky", "Straight Wheat Whiskey",
-    "Straight Malt Whisky", "Straight Malt Whiskey",
-    "Straight Corn Whisky", "Straight Corn Whiskey",
-    "Straight Whisky", "Straight Whiskey",
-    "Light Whisky", "Light Whiskey",
-    "Blended Whisky", "Blended Whiskey",
-    "Blended Bourbon Whisky", "Blended Bourbon Whiskey",
-    "Blended Rye Whisky", "Blended Rye Whiskey",
-    "Spirit Whisky", "Spirit Whiskey",
-    "Scotch Whisky", "Irish Whiskey", "Canadian Whisky",
-    "Kentucky Straight Bourbon Whiskey", "Tennessee Whiskey",
-    "Single Malt", "Single Barrel", "Single Pot Still",
-    "Brandy", "Cognac", "Armagnac", "Calvados", "Pisco", "Grappa",
-    "Fruit Brandy", "Applejack",
-    "Liqueur", "Cordial", "Sloe Gin", "Amaretto", "Triple Sec",
-    "Sambuca", "Absinthe", "Bitters", "Aquavit",
-    "Neutral Spirits", "Grain Spirits",
+    "Vodka",
+    "Gin",
+    "Distilled Gin",
+    "Compounded Gin",
+    "Redistilled Gin",
+    "Rum",
+    "Tequila",
+    "Mezcal",
+    "Whiskey",
+    "Whisky",
+    "Bourbon",
+    "Bourbon Whisky",
+    "Bourbon Whiskey",
+    "Rye Whisky",
+    "Rye Whiskey",
+    "Wheat Whisky",
+    "Wheat Whiskey",
+    "Malt Whisky",
+    "Malt Whiskey",
+    "Corn Whisky",
+    "Corn Whiskey",
+    "Straight Bourbon Whisky",
+    "Straight Bourbon Whiskey",
+    "Straight Rye Whisky",
+    "Straight Rye Whiskey",
+    "Straight Wheat Whisky",
+    "Straight Wheat Whiskey",
+    "Straight Malt Whisky",
+    "Straight Malt Whiskey",
+    "Straight Corn Whisky",
+    "Straight Corn Whiskey",
+    "Straight Whisky",
+    "Straight Whiskey",
+    "Light Whisky",
+    "Light Whiskey",
+    "Blended Whisky",
+    "Blended Whiskey",
+    "Blended Bourbon Whisky",
+    "Blended Bourbon Whiskey",
+    "Blended Rye Whisky",
+    "Blended Rye Whiskey",
+    "Spirit Whisky",
+    "Spirit Whiskey",
+    "Scotch Whisky",
+    "Irish Whiskey",
+    "Canadian Whisky",
+    "Kentucky Straight Bourbon Whiskey",
+    "Tennessee Whiskey",
+    "Single Malt",
+    "Single Barrel",
+    "Single Pot Still",
+    "Brandy",
+    "Cognac",
+    "Armagnac",
+    "Calvados",
+    "Pisco",
+    "Grappa",
+    "Fruit Brandy",
+    "Applejack",
+    "Liqueur",
+    "Cordial",
+    "Sloe Gin",
+    "Amaretto",
+    "Triple Sec",
+    "Sambuca",
+    "Absinthe",
+    "Bitters",
+    "Aquavit",
+    "Neutral Spirits",
+    "Grain Spirits",
     # --- Wine (27 CFR Part 4 / TTB Wine BAM Ch5) ---
-    "Table Wine", "Light Wine", "Dessert Wine",
-    "Red Wine", "Rose Wine", "White Wine",
-    "American Red Wine", "American White Wine",
-    "Sparkling Wine", "Champagne", "Carbonated Wine",
-    "Fortified Wine", "Sherry", "Port", "Madeira", "Marsala",
-    "Vermouth", "Sake", "Mead", "Honey Wine",
-    "Fruit Wine", "Citrus Wine", "Berry Wine",
-    "Agricultural Wine", "Retsina", "Natural Wine", "Special Natural Wine",
+    "Table Wine",
+    "Light Wine",
+    "Dessert Wine",
+    "Red Wine",
+    "Rose Wine",
+    "White Wine",
+    "American Red Wine",
+    "American White Wine",
+    "Sparkling Wine",
+    "Champagne",
+    "Carbonated Wine",
+    "Fortified Wine",
+    "Sherry",
+    "Port",
+    "Madeira",
+    "Marsala",
+    "Vermouth",
+    "Sake",
+    "Mead",
+    "Honey Wine",
+    "Fruit Wine",
+    "Citrus Wine",
+    "Berry Wine",
+    "Agricultural Wine",
+    "Retsina",
+    "Natural Wine",
+    "Special Natural Wine",
     # --- Beer / Malt Beverages (27 CFR Part 7) ---
-    "Beer", "Ale", "Lager", "Stout", "Porter",
-    "Pale Ale", "India Pale Ale", "IPA",
-    "Barleywine Ale", "Barleywine", "Barley Wine",
-    "Pilsner", "Wheat Beer", "Hefeweizen",
-    "Kolsch", "Saison", "Sour", "Gose",
-    "Malt Liquor", "Malt Beverage", "Flavored Malt Beverage",
-    "Hard Seltzer", "Hard Cider",
+    "Beer",
+    "Ale",
+    "Lager",
+    "Stout",
+    "Porter",
+    "Pale Ale",
+    "India Pale Ale",
+    "IPA",
+    "Barleywine Ale",
+    "Barleywine",
+    "Barley Wine",
+    "Pilsner",
+    "Wheat Beer",
+    "Hefeweizen",
+    "Kolsch",
+    "Saison",
+    "Sour",
+    "Gose",
+    "Malt Liquor",
+    "Malt Beverage",
+    "Flavored Malt Beverage",
+    "Hard Seltzer",
+    "Hard Cider",
     # --- Generic qualifiers ---
-    "Straight", "Blended", "Reserve", "Aged",
-    "Scotch", "Irish", "Canadian", "Kentucky", "Tennessee",
-    "Shochu", "Baijiu", "Cachaca",
+    "Straight",
+    "Blended",
+    "Reserve",
+    "Aged",
+    "Scotch",
+    "Irish",
+    "Canadian",
+    "Kentucky",
+    "Tennessee",
+    "Shochu",
+    "Baijiu",
+    "Cachaca",
 )
 _CLASS_KEYWORD_SET = frozenset(k.upper() for k in _CLASS_KEYWORDS)
 _CLASS_RE = re.compile(
-    r"(?:" + "|".join(re.escape(k) for k in sorted(_CLASS_KEYWORDS, key=len, reverse=True)) + r")",
+    r"(?:"
+    + "|".join(re.escape(k) for k in sorted(_CLASS_KEYWORDS, key=len, reverse=True))
+    + r")",
     re.I,
 )
 
@@ -257,6 +407,7 @@ def _is_stop_content(text: str) -> bool:
 # Main extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_fields(ocr_blocks: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Extract: brand_name, class_type, alcohol_pct, proof, net_contents,
@@ -287,6 +438,7 @@ def extract_fields(ocr_blocks: list[dict[str, Any]]) -> dict[str, Any]:
 # Brand name (Bug 6: keep domain suffixes, strip corp suffixes)
 # ---------------------------------------------------------------------------
 
+
 def _extract_brand(blocks: list[dict]) -> dict[str, Any]:
     for i, b in enumerate(blocks):
         text_upper = (b.get("text") or "").strip().upper()
@@ -310,7 +462,7 @@ def _extract_brand(blocks: list[dict]) -> dict[str, Any]:
     max_y = max(b.get("bbox", [0, 0, 0, 0])[3] for b in blocks)
     top_half = [b for b in blocks if _bbox_y_center(b) < max_y * 0.55]
     if not top_half:
-        top_half = blocks[:max(1, len(blocks) // 2)]
+        top_half = blocks[: max(1, len(blocks) // 2)]
 
     best_score = 0
     best_block = None
@@ -328,13 +480,17 @@ def _extract_brand(blocks: list[dict]) -> dict[str, Any]:
             best_block = b
 
     if best_block:
-        return {"value": (best_block["text"] or "").strip(), "bbox": best_block.get("bbox")}
+        return {
+            "value": (best_block["text"] or "").strip(),
+            "bbox": best_block.get("bbox"),
+        }
     return {"value": "", "bbox": None}
 
 
 # ---------------------------------------------------------------------------
 # Class / type (Bug 3: stop conditions)
 # ---------------------------------------------------------------------------
+
 
 def _extract_class_type(blocks: list[dict]) -> dict[str, Any]:
     anchor_idx = None
@@ -343,7 +499,9 @@ def _extract_class_type(blocks: list[dict]) -> dict[str, Any]:
             if not _is_stop_content(b.get("text", "")):
                 anchor_idx = i
                 break
-            if _CLASS_RE.search(b.get("text", "")) and not _ABV_QUAL_RE.search(b.get("text", "")):
+            if _CLASS_RE.search(b.get("text", "")) and not _ABV_QUAL_RE.search(
+                b.get("text", "")
+            ):
                 anchor_idx = i
                 break
 
@@ -358,9 +516,24 @@ def _extract_class_type(blocks: list[dict]) -> dict[str, Any]:
     y_thresh = _bbox_height(anchor) * 3
     collected = [anchor]
 
-    _CLASS_ADJ = {"SINGLE", "BARREL", "STRAIGHT", "BLENDED", "DOUBLE", "TRIPLE",
-                  "SMALL", "BATCH", "RESERVE", "AGED", "OLD", "AMERICAN",
-                  "WHISKEY", "WHISKY", "WINE", "ALE"}
+    _CLASS_ADJ = {
+        "SINGLE",
+        "BARREL",
+        "STRAIGHT",
+        "BLENDED",
+        "DOUBLE",
+        "TRIPLE",
+        "SMALL",
+        "BATCH",
+        "RESERVE",
+        "AGED",
+        "OLD",
+        "AMERICAN",
+        "WHISKEY",
+        "WHISKY",
+        "WINE",
+        "ALE",
+    }
 
     for j in range(anchor_idx - 1, max(anchor_idx - 4, -1), -1):
         b = blocks[j]
@@ -395,6 +568,7 @@ def _extract_class_type(blocks: list[dict]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # ABV / Proof (Bug 1: strict-first extraction)
 # ---------------------------------------------------------------------------
+
 
 def _extract_abv_proof(blocks: list[dict]) -> dict[str, Any]:
     out: dict[str, Any] = {}
@@ -449,6 +623,7 @@ def _extract_abv_proof(blocks: list[dict]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Net contents (Bug 2: imperial units)
 # ---------------------------------------------------------------------------
+
 
 def _extract_net_contents(blocks: list[dict]) -> dict[str, Any]:
     # Check compound expressions first (e.g. "1 PINT 8 FL OZ")
@@ -508,6 +683,7 @@ def _format_net(m: re.Match, bbox: Any) -> dict[str, Any]:
 # Government warning (Bug 4: tighter stop conditions)
 # ---------------------------------------------------------------------------
 
+
 def _extract_warning(blocks: list[dict]) -> dict[str, Any]:
     anchor = None
     anchor_idx = None
@@ -518,7 +694,9 @@ def _extract_warning(blocks: list[dict]) -> dict[str, Any]:
             anchor_idx = i
             break
         if "GOVERNMENT" in t:
-            next_t = blocks[i + 1].get("text", "").upper() if i + 1 < len(blocks) else ""
+            next_t = (
+                blocks[i + 1].get("text", "").upper() if i + 1 < len(blocks) else ""
+            )
             if "WARNING" in next_t:
                 anchor = b
                 anchor_idx = i
@@ -558,7 +736,9 @@ def _extract_warning(blocks: list[dict]) -> dict[str, Any]:
             break
         if _ABV_QUAL_RE.search(t) and "GOVERNMENT" not in upper:
             break
-        if _CLASS_RE.search(t) and not any(w in upper for w in ("ALCOHOLIC", "BEVERAGES", "HEALTH", "PROBLEMS")):
+        if _CLASS_RE.search(t) and not any(
+            w in upper for w in ("ALCOHOLIC", "BEVERAGES", "HEALTH", "PROBLEMS")
+        ):
             break
 
         if len(t) < 2 and not t.isdigit():
@@ -635,6 +815,7 @@ def _extract_bottler(blocks: list[dict]) -> dict[str, Any]:
 # Country of origin
 # ---------------------------------------------------------------------------
 
+
 def _extract_country(blocks: list[dict]) -> dict[str, Any]:
     for b in blocks:
         m = _COUNTRY_RE.search(b.get("text", ""))
@@ -646,6 +827,7 @@ def _extract_country(blocks: list[dict]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Empty fallback
 # ---------------------------------------------------------------------------
+
 
 def _empty_extracted() -> dict[str, Any]:
     return {

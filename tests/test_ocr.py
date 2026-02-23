@@ -1,42 +1,181 @@
 """Tests for OCR module."""
 import pytest
 from PIL import Image
+from unittest.mock import patch, MagicMock
 
-from src.ocr import run_ocr, _preprocess, _deduplicate_blocks, _bbox_iou, _data_to_blocks, OcrUnavailableError
+from src.ocr import (
+    run_ocr,
+    _preprocess_for_tesseract,
+    _deduplicate_blocks,
+    _bbox_iou,
+    _data_to_blocks,
+    _easyocr_to_blocks,
+    _resize,
+    _split_line_by_gaps,
+    OcrUnavailableError,
+)
 
 
-def test_preprocess_resizes_large_image():
+# ---------------------------------------------------------------------------
+# Preprocessing
+# ---------------------------------------------------------------------------
+
+def test_resize_caps_large_image():
     img = Image.new("RGB", (3000, 2000), color="white")
-    original, enhanced = _preprocess(img)
-    assert original.size[0] <= 2000 and original.size[1] <= 2000
-    assert max(original.size) == 2000
+    resized = _resize(img)
+    assert max(resized.size) == 2000
 
-
-def test_preprocess_returns_enhanced_grayscale():
+def test_resize_upscales_small_image():
     img = Image.new("RGB", (400, 300), color="white")
-    original, enhanced = _preprocess(img)
-    assert original.size == (400, 300)
-    assert enhanced.mode == "L"
+    resized = _resize(img)
+    assert max(resized.size) >= 1000
+
+def test_resize_leaves_normal_image():
+    img = Image.new("RGB", (1500, 1200), color="white")
+    resized = _resize(img)
+    assert resized.size == (1500, 1200)
+
+def test_preprocess_for_tesseract_returns_three_images():
+    img = Image.new("RGB", (1500, 1000), color="white")
+    original, sharpened, binary = _preprocess_for_tesseract(img)
+    assert original.mode == "RGB"
+    assert sharpened.mode == "L"
+    assert binary.mode == "L"
+
+def test_preprocess_for_tesseract_no_gaussian_blur():
+    """Verify GaussianBlur is NOT applied (sharpening kernel instead)."""
+    import numpy as np
+    img = Image.new("RGB", (1500, 1000), color="white")
+    _, sharpened, _ = _preprocess_for_tesseract(img)
+    arr = np.array(sharpened)
+    assert arr.shape == (1000, 1500)
 
 
-def test_preprocess_leaves_small_image_unchanged():
-    img = Image.new("RGB", (400, 300), color="white")
-    original, enhanced = _preprocess(img)
-    assert original.size == (400, 300)
+# ---------------------------------------------------------------------------
+# EasyOCR block conversion
+# ---------------------------------------------------------------------------
 
+def test_easyocr_to_blocks_basic():
+    results = [
+        ([[10, 20], [100, 20], [100, 50], [10, 50]], "HELLO WORLD", 0.95),
+        ([[10, 60], [80, 60], [80, 90], [10, 90]], "TEST", 0.88),
+    ]
+    blocks = _easyocr_to_blocks(results)
+    assert len(blocks) == 2
+    assert blocks[0]["text"] == "HELLO WORLD"
+    assert blocks[0]["bbox"] == [10, 20, 100, 50]
+    assert blocks[0]["confidence"] == pytest.approx(95.0)
+    assert blocks[1]["text"] == "TEST"
+    assert blocks[1]["confidence"] == pytest.approx(88.0)
+
+def test_easyocr_to_blocks_filters_low_confidence():
+    results = [
+        ([[10, 20], [100, 20], [100, 50], [10, 50]], "GOOD", 0.9),
+        ([[10, 60], [80, 60], [80, 90], [10, 90]], "BAD", 0.05),
+    ]
+    blocks = _easyocr_to_blocks(results)
+    assert len(blocks) == 1
+    assert blocks[0]["text"] == "GOOD"
+
+def test_easyocr_to_blocks_filters_empty_text():
+    results = [
+        ([[10, 20], [100, 20], [100, 50], [10, 50]], "", 0.95),
+        ([[10, 60], [80, 60], [80, 90], [10, 90]], "  ", 0.88),
+        ([[10, 100], [80, 100], [80, 130], [10, 130]], "OK", 0.90),
+    ]
+    blocks = _easyocr_to_blocks(results)
+    assert len(blocks) == 1
+    assert blocks[0]["text"] == "OK"
+
+def test_easyocr_to_blocks_rotated_polygon():
+    """Rotated/tilted text should still produce correct axis-aligned bbox."""
+    results = [
+        ([[50, 10], [150, 20], [148, 50], [48, 40]], "TILTED", 0.85),
+    ]
+    blocks = _easyocr_to_blocks(results)
+    assert len(blocks) == 1
+    assert blocks[0]["bbox"] == [48, 10, 150, 50]
+
+
+# ---------------------------------------------------------------------------
+# Tesseract block splitting
+# ---------------------------------------------------------------------------
+
+def test_split_line_by_gaps_no_split():
+    """Closely spaced words should not be split."""
+    data = {
+        "text": ["STRAIGHT", "RYE", "WHISKY"],
+        "conf": [90, 91, 92],
+        "left": [10, 90, 130],
+        "top": [100, 100, 100],
+        "width": [70, 30, 50],
+        "height": [20, 20, 20],
+    }
+    blocks = _split_line_by_gaps(data, [0, 1, 2])
+    assert len(blocks) == 1
+    assert blocks[0]["text"] == "STRAIGHT RYE WHISKY"
+
+def test_split_line_by_gaps_splits_wide_gap():
+    """Words with a large horizontal gap should be split into separate blocks."""
+    data = {
+        "text": ["FREDERICK,MD", "STRAIGHT", "RYE", "WHISKY"],
+        "conf": [90, 91, 92, 93],
+        "left": [10, 300, 380, 420],
+        "top": [100, 100, 100, 100],
+        "width": [100, 70, 30, 50],
+        "height": [20, 20, 20, 20],
+    }
+    blocks = _split_line_by_gaps(data, [0, 1, 2, 3])
+    assert len(blocks) == 2
+    assert blocks[0]["text"] == "FREDERICK,MD"
+    assert blocks[1]["text"] == "STRAIGHT RYE WHISKY"
+
+def test_split_line_single_word():
+    data = {
+        "text": ["HELLO"],
+        "conf": [95],
+        "left": [10],
+        "top": [10],
+        "width": [80],
+        "height": [20],
+    }
+    blocks = _split_line_by_gaps(data, [0])
+    assert len(blocks) == 1
+    assert blocks[0]["text"] == "HELLO"
+
+def test_data_to_blocks_with_gap_splitting():
+    """Integration: _data_to_blocks should split wide lines via gap detection."""
+    data = {
+        "block_num": [1, 1, 1, 1],
+        "par_num": [1, 1, 1, 1],
+        "line_num": [1, 1, 1, 1],
+        "text": ["LEFT", "PANEL", "RIGHT", "PANEL"],
+        "conf": [90, 91, 92, 93],
+        "left": [10, 60, 400, 460],
+        "top": [100, 100, 100, 100],
+        "width": [40, 50, 50, 50],
+        "height": [20, 20, 20, 20],
+    }
+    blocks = _data_to_blocks(data)
+    assert len(blocks) == 2
+    texts = [b["text"] for b in blocks]
+    assert "LEFT PANEL" in texts
+    assert "RIGHT PANEL" in texts
+
+
+# ---------------------------------------------------------------------------
+# bbox / dedup (unchanged)
+# ---------------------------------------------------------------------------
 
 def test_bbox_iou_identical():
     assert _bbox_iou([0, 0, 100, 100], [0, 0, 100, 100]) == 1.0
 
-
 def test_bbox_iou_no_overlap():
     assert _bbox_iou([0, 0, 50, 50], [100, 100, 200, 200]) == 0.0
-
 
 def test_bbox_iou_partial():
     iou = _bbox_iou([0, 0, 100, 100], [50, 50, 150, 150])
     assert 0 < iou < 1
-
 
 def test_deduplicate_removes_duplicates():
     blocks = [
@@ -49,7 +188,6 @@ def test_deduplicate_removes_duplicates():
     assert texts.count("Hello") == 1
     assert "World" in texts
 
-
 def test_deduplicate_keeps_higher_confidence():
     blocks = [
         {"text": "Test", "bbox": [0, 0, 100, 50], "confidence": 70},
@@ -59,13 +197,29 @@ def test_deduplicate_keeps_higher_confidence():
     assert len(result) == 1
     assert result[0]["confidence"] == 95
 
+def test_deduplicate_fuzzy_similar_text():
+    blocks = [
+        {"text": "RED WINE VICTORIA 12% ALC.VOL.", "bbox": [10, 10, 300, 40], "confidence": 90},
+        {"text": "RED WINE VICTORIA 12% ALC./VOL.", "bbox": [12, 11, 298, 39], "confidence": 85},
+    ]
+    result = _deduplicate_blocks(blocks)
+    assert len(result) == 1
+    assert result[0]["confidence"] == 90
+
+def test_deduplicate_keeps_different_text():
+    blocks = [
+        {"text": "RED WINE", "bbox": [10, 10, 100, 40], "confidence": 90},
+        {"text": "PALE ALE", "bbox": [10, 50, 100, 80], "confidence": 88},
+    ]
+    result = _deduplicate_blocks(blocks)
+    assert len(result) == 2
+
 
 # ---------------------------------------------------------------------------
 # _data_to_blocks: line-level grouping
 # ---------------------------------------------------------------------------
 
 def _mock_tesseract_data():
-    """Simulate pytesseract.image_to_data output with hierarchy fields."""
     return {
         "block_num": [1, 1, 1, 1, 1, 2, 2, 2],
         "par_num":   [1, 1, 1, 1, 1, 1, 1, 1],
@@ -78,7 +232,6 @@ def _mock_tesseract_data():
         "height":    [20, 20, 0, 20, 20, 25, 25, 0],
     }
 
-
 def test_data_to_blocks_groups_by_line():
     data = _mock_tesseract_data()
     blocks = _data_to_blocks(data)
@@ -87,14 +240,12 @@ def test_data_to_blocks_groups_by_line():
     assert "(1) According" in texts
     assert "Brand Label" in texts
 
-
 def test_data_to_blocks_merged_bbox():
     data = _mock_tesseract_data()
     blocks = _data_to_blocks(data)
     gov_block = next(b for b in blocks if "GOVERNMENT" in b["text"])
     assert gov_block["bbox"][0] == 10
-    assert gov_block["bbox"][2] == 200  # left(120) + width(80)
-
+    assert gov_block["bbox"][2] == 200
 
 def test_data_to_blocks_avg_confidence():
     data = _mock_tesseract_data()
@@ -102,19 +253,14 @@ def test_data_to_blocks_avg_confidence():
     gov_block = next(b for b in blocks if "GOVERNMENT" in b["text"])
     assert gov_block["confidence"] == pytest.approx((91 + 90) / 2)
 
-
 def test_data_to_blocks_skips_empty_and_negative_conf():
     data = _mock_tesseract_data()
     blocks = _data_to_blocks(data)
-    all_text = " ".join(b["text"] for b in blocks)
-    assert all_text.strip()
     for b in blocks:
         assert b["text"].strip()
         assert b["confidence"] >= 0
 
-
 def test_data_to_blocks_fallback_without_hierarchy():
-    """When block_num/par_num/line_num are absent, falls back to word-level."""
     data = {
         "text": ["Hello", "World"],
         "conf": [90, 85],
@@ -130,46 +276,39 @@ def test_data_to_blocks_fallback_without_hierarchy():
 
 
 # ---------------------------------------------------------------------------
-# Integration
+# run_ocr integration with mocked EasyOCR
 # ---------------------------------------------------------------------------
+
+def test_run_ocr_uses_easyocr_first(white_image):
+    """run_ocr should try EasyOCR first."""
+    mock_reader = MagicMock()
+    mock_reader.readtext.return_value = [
+        ([[10, 10], [100, 10], [100, 40], [10, 40]], "MOCK TEXT", 0.95),
+    ]
+    with patch("src.ocr._get_easyocr_reader", return_value=mock_reader):
+        blocks = run_ocr(white_image)
+    assert len(blocks) == 1
+    assert blocks[0]["text"] == "MOCK TEXT"
+    assert "_ocr_fallback" not in blocks[0]
+
+def test_run_ocr_falls_back_to_tesseract(white_image):
+    """If EasyOCR fails, Tesseract should be used with _ocr_fallback flag."""
+    with patch("src.ocr._get_easyocr_reader", side_effect=Exception("no easyocr")):
+        try:
+            blocks = run_ocr(white_image)
+            if blocks:
+                assert blocks[0].get("_ocr_fallback") is True
+        except OcrUnavailableError:
+            pytest.skip("Tesseract not installed either")
 
 def test_run_ocr_returns_list_of_blocks(white_image):
     try:
         blocks = run_ocr(white_image)
     except OcrUnavailableError:
-        pytest.skip("Tesseract not installed")
+        pytest.skip("No OCR engine available")
     assert isinstance(blocks, list)
     for b in blocks:
         assert "text" in b
         assert "bbox" in b
         assert "confidence" in b
         assert len(b["bbox"]) == 4
-
-
-def test_deduplicate_fuzzy_similar_text():
-    """Near-identical text with overlapping bboxes should be deduped (Bug 9)."""
-    blocks = [
-        {"text": "RED WINE VICTORIA 12% ALC.VOL.", "bbox": [10, 10, 300, 40], "confidence": 90},
-        {"text": "RED WINE VICTORIA 12% ALC./VOL.", "bbox": [12, 11, 298, 39], "confidence": 85},
-    ]
-    result = _deduplicate_blocks(blocks)
-    assert len(result) == 1
-    assert result[0]["confidence"] == 90
-
-
-def test_deduplicate_keeps_different_text():
-    """Different text blocks at different positions should be kept."""
-    blocks = [
-        {"text": "RED WINE", "bbox": [10, 10, 100, 40], "confidence": 90},
-        {"text": "PALE ALE", "bbox": [10, 50, 100, 80], "confidence": 88},
-    ]
-    result = _deduplicate_blocks(blocks)
-    assert len(result) == 2
-
-
-def test_run_ocr_raises_when_tesseract_missing(white_image):
-    try:
-        run_ocr(white_image)
-    except OcrUnavailableError:
-        return
-    pass

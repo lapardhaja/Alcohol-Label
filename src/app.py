@@ -38,6 +38,8 @@ st.markdown("""
     .status-pass { background: #d4edda; color: #155724; border: 2px solid #28a745; }
     .status-review { background: #fff3cd; color: #856404; border: 2px solid #ffc107; }
     .status-fail { background: #f8d7da; color: #721c24; border: 2px solid #dc3545; }
+    [class*="approve_btn"] button { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; }
+    [class*="reject_btn"] button { background-color: #dc3545 !important; border-color: #dc3545 !important; color: white !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -132,12 +134,12 @@ _BEV_TYPE_KEY_MAP = {
 
 
 def _init_app_lists():
+    from src.storage import load_applications
     if "applications_under_review" not in st.session_state:
-        st.session_state["applications_under_review"] = []
-    if "applications_approved" not in st.session_state:
-        st.session_state["applications_approved"] = []
-    if "applications_rejected" not in st.session_state:
-        st.session_state["applications_rejected"] = []
+        data = load_applications()
+        st.session_state["applications_under_review"] = data["applications_under_review"]
+        st.session_state["applications_approved"] = data["applications_approved"]
+        st.session_state["applications_rejected"] = data["applications_rejected"]
     if "app_list_view" not in st.session_state:
         st.session_state["app_list_view"] = "under_review"
     if "selected_app_id" not in st.session_state:
@@ -163,6 +165,36 @@ def main():
 
 
 def _single_label_screen():
+    # Process pending approve/reject at start of run (ensures session state persists)
+    _pending = st.session_state.pop("_pending_approve", None) or st.session_state.pop("_pending_reject", None)
+    if _pending:
+        action = _pending.get("action")  # "approve" or "reject"
+        entry = _pending.get("entry")
+        selected_id = _pending.get("selected_id")
+        from src.storage import load_applications, save_applications
+        data = load_applications()
+        if selected_id:
+            data["applications_under_review"] = [a for a in data["applications_under_review"] if a.get("id") != selected_id]
+        if action == "approve":
+            data["applications_approved"] = data["applications_approved"] + [entry]
+            st.session_state["app_list_view"] = "approved"
+            st.session_state["app_list_radio"] = "Approved"
+        else:
+            data["applications_rejected"] = data["applications_rejected"] + [entry]
+            st.session_state["app_list_view"] = "rejected"
+            st.session_state["app_list_radio"] = "Rejected"
+        save_applications(
+            data["applications_under_review"],
+            data["applications_approved"],
+            data["applications_rejected"],
+        )
+        st.session_state["selected_app_id"] = None
+        st.session_state["selected_app_bucket"] = None
+        st.session_state["adding_new_application"] = False
+        for k in ("last_single_result", "last_single_image_bytes", "last_single_app_data", "last_single_entry_id"):
+            st.session_state.pop(k, None)
+        # Don't rerun — continue this run so sidebar sees app_list_view and shows Approved list
+
     with st.sidebar:
         st.header("TTB Label Verification")
 
@@ -370,20 +402,20 @@ def _single_label_screen():
         st.session_state["last_single_result"] = result
         st.session_state["last_single_image_bytes"] = upload.getvalue()
         st.session_state["last_single_app_data"] = app_data
-        _render_single_result(result, st.session_state["last_single_image_bytes"])
-        if st.button("Add to Under Review", type="primary", key="add_to_under_review"):
-            entry = {
-                "id": str(uuid.uuid4()),
-                "brand_name": app_data.get("brand_name", ""),
-                "class_type": app_data.get("class_type", ""),
-                "overall_status": result.get("overall_status", "—"),
-                "app_data": app_data,
-                "image_bytes": upload.getvalue(),
-                "result": {k: v for k, v in result.items() if k != "image"},
-            }
-            st.session_state["applications_under_review"].append(entry)
+        entry_id = st.session_state.get("last_single_entry_id") or str(uuid.uuid4())
+        st.session_state["last_single_entry_id"] = entry_id
+        entry = {
+            "id": entry_id,
+            "brand_name": app_data.get("brand_name", ""),
+            "class_type": app_data.get("class_type", ""),
+            "overall_status": result.get("overall_status", "—"),
+            "app_data": app_data,
+            "image_bytes": upload.getvalue(),
+            "result": {k: v for k, v in result.items() if k != "image"},
+        }
+        _render_single_result(result, upload.getvalue(), approve_reject={"entry": entry, "selected_id": None})
+        if st.button("Cancel", key="add_cancel_submit"):
             st.session_state["adding_new_application"] = False
-            st.session_state["selected_app_id"] = None
             st.rerun()
         return
     if submitted and upload is None and adding_new:
@@ -401,7 +433,10 @@ def _single_label_screen():
     # List or detail view for Under Review / Approved / Rejected
     if view in ("under_review", "approved", "rejected"):
         bucket = {"under_review": "applications_under_review", "approved": "applications_approved", "rejected": "applications_rejected"}[view]
-        apps = st.session_state.get(bucket, [])
+        # All lists read from JSON (single source of truth)
+        from src.storage import load_applications
+        data = load_applications()
+        apps = data[bucket]
         selected_id = st.session_state.get("selected_app_id")
         selected_bucket = st.session_state.get("selected_app_bucket")
 
@@ -434,10 +469,16 @@ def _single_label_screen():
             else:
                 for a in apps:
                     with st.container():
-                        col1, col2 = st.columns([3, 1])
-                        with col1:
+                        img_col, text_col, btn_col = st.columns([1, 3, 1])
+                        with img_col:
+                            img_bytes = a.get("image_bytes")
+                            if img_bytes:
+                                st.image(img_bytes, width=120, caption="")
+                            else:
+                                st.caption("(no image)")
+                        with text_col:
                             st.markdown(f"**{a.get('brand_name', '—')}** — {a.get('class_type', '')}  \n_{a.get('overall_status', '—')}_")
-                        with col2:
+                        with btn_col:
                             if st.button("View", key=f"view_{a['id']}"):
                                 st.session_state["selected_app_id"] = a["id"]
                                 st.session_state["selected_app_bucket"] = bucket
@@ -446,23 +487,22 @@ def _single_label_screen():
         return
 
     if adding_new and "last_single_result" in st.session_state:
-        _render_single_result(st.session_state["last_single_result"], st.session_state.get("last_single_image_bytes"))
-        if st.button("Add to Under Review", type="primary", key="add_to_under_review_2"):
-            result = st.session_state["last_single_result"]
-            app_data = st.session_state.get("last_single_app_data") or {}
-            entry = {
-                "id": str(uuid.uuid4()),
-                "brand_name": app_data.get("brand_name", ""),
-                "class_type": app_data.get("class_type", ""),
-                "overall_status": result.get("overall_status", "—"),
-                "app_data": app_data,
-                "image_bytes": st.session_state.get("last_single_image_bytes") or b"",
-                "result": {k: v for k, v in result.items() if k != "image"},
-            }
-            st.session_state["applications_under_review"].append(entry)
-            st.session_state["adding_new_application"] = False
-            st.session_state["selected_app_id"] = None
-            st.rerun()
+        result = st.session_state["last_single_result"]
+        app_data = st.session_state.get("last_single_app_data") or {}
+        image_bytes = st.session_state.get("last_single_image_bytes") or b""
+        entry_id = st.session_state.get("last_single_entry_id") or str(uuid.uuid4())
+        st.session_state["last_single_entry_id"] = entry_id
+        entry = {
+            "id": entry_id,
+            "brand_name": app_data.get("brand_name", ""),
+            "class_type": app_data.get("class_type", ""),
+            "overall_status": result.get("overall_status", "—"),
+            "app_data": app_data,
+            "image_bytes": image_bytes,
+            "result": {k: v for k, v in result.items() if k != "image"},
+        }
+        _approve_reject = {"entry": entry, "selected_id": None}
+        _render_single_result(result, image_bytes, approve_reject=_approve_reject)
         if st.button("Cancel", key="add_cancel"):
             st.session_state["adding_new_application"] = False
             st.rerun()
@@ -485,37 +525,34 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
         "Critical issues": "status-fail",
     }.get(overall, "status-review")
 
-    # Top row: status on left, Approve/Reject on right when applicable
+    st.markdown(f'<div class="status-banner {css_class}">{overall}</div>', unsafe_allow_html=True)
+    # Caption + Approve/Reject in same row when applicable
     if approve_reject:
-        top_left, top_right = st.columns([3, 1])
+        cap_col, btn1_col, btn2_col = st.columns([2, 1, 1])
+        with cap_col:
+            st.caption(
+                f"Pass: {counts.get('pass', 0)}  |  "
+                f"Needs review: {counts.get('needs_review', 0)}  |  "
+                f"Fail: {counts.get('fail', 0)}"
+            )
+        entry = approve_reject["entry"]
+        selected_id = approve_reject.get("selected_id")
+        with btn1_col:
+            with st.container(key="approve_btn"):
+                if st.button("Approve", type="primary", key="btn_approve", width="stretch"):
+                    st.session_state["_pending_approve"] = {"action": "approve", "entry": entry, "selected_id": selected_id}
+                    st.rerun()
+        with btn2_col:
+            with st.container(key="reject_btn"):
+                if st.button("Reject", key="btn_reject", width="stretch"):
+                    st.session_state["_pending_reject"] = {"action": "reject", "entry": entry, "selected_id": selected_id}
+                    st.rerun()
     else:
-        top_left = st.container()
-    with top_left:
-        st.markdown(f'<div class="status-banner {css_class}">{overall}</div>', unsafe_allow_html=True)
         st.caption(
             f"Pass: {counts.get('pass', 0)}  |  "
             f"Needs review: {counts.get('needs_review', 0)}  |  "
             f"Fail: {counts.get('fail', 0)}"
         )
-    if approve_reject:
-        with top_right:
-            entry = approve_reject["entry"]
-            selected_id = approve_reject["selected_id"]
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
-                if st.button("Approve", type="primary", key="btn_approve"):
-                    st.session_state["applications_under_review"] = [a for a in st.session_state["applications_under_review"] if a["id"] != selected_id]
-                    st.session_state["applications_approved"].append(entry)
-                    st.session_state["selected_app_id"] = None
-                    st.session_state["selected_app_bucket"] = None
-                    st.rerun()
-            with btn_col2:
-                if st.button("Reject", key="btn_reject"):
-                    st.session_state["applications_under_review"] = [a for a in st.session_state["applications_under_review"] if a["id"] != selected_id]
-                    st.session_state["applications_rejected"].append(entry)
-                    st.session_state["selected_app_id"] = None
-                    st.session_state["selected_app_bucket"] = None
-                    st.rerun()
 
     img = result.get("image")
     if img is None and image_bytes:

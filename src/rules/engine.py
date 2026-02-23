@@ -3,6 +3,7 @@ Load rules config and run all rule categories. Return list of { rule_id, categor
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,20 @@ def run_rules(extracted: dict[str, Any], app_data: dict[str, Any]) -> list[dict[
 
 def _norm(s: str) -> str:
     return " ".join((s or "").split()).strip()
+
+
+def _net_contents_to_ml(s: str) -> int | None:
+    """Parse TTB-style net contents (e.g. '750 mL', '1 L') to milliliters. Returns None if unparseable."""
+    s = _norm(s)
+    if not s:
+        return None
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*(mL|L)\s*$", s, re.I)
+    if not m:
+        return None
+    val = float(m.group(1))
+    if m.group(2).lower() == "l":
+        val *= 1000
+    return int(round(val))
 
 
 def _similarity(a: str, b: str) -> float:
@@ -127,8 +142,21 @@ def _rules_alcohol_contents(extracted: dict, app_data: dict, config: dict) -> li
     if not label_net:
         results.append({"rule_id": "Net contents present", "category": "Alcohol & contents", "status": "fail", "message": "Net contents not found on label.", "bbox_ref": extracted.get("net_contents", {}).get("bbox")})
     else:
-        # Optional: check standard of fill from config
-        results.append({"rule_id": "Net contents", "category": "Alcohol & contents", "status": "pass", "message": f"Net contents found: {label_net}.", "bbox_ref": extracted.get("net_contents", {}).get("bbox")})
+        # TTB: stated in L/mL; must match standard of fill (27 CFR 5.203) when prescribed
+        label_ml = _net_contents_to_ml(label_net)
+        app_ml: int | None = None
+        if app_net:
+            try:
+                app_ml = int(round(float(app_net)))
+            except (TypeError, ValueError):
+                pass
+        allowed_ml = config.get("net_contents", {}).get("standard_of_fill_ml") or []
+        if label_ml is not None and allowed_ml and label_ml not in allowed_ml:
+            results.append({"rule_id": "Net contents standard of fill", "category": "Alcohol & contents", "status": "needs_review", "message": f"Net contents '{label_net}' is not a TTB authorized standard of fill (27 CFR 5.203).", "bbox_ref": extracted.get("net_contents", {}).get("bbox")})
+        if app_ml is not None and label_ml is not None and app_ml != label_ml:
+            results.append({"rule_id": "Net contents matches", "category": "Alcohol & contents", "status": "needs_review", "message": f"Net contents on label ({label_net}) does not match application ({app_net} mL).", "bbox_ref": extracted.get("net_contents", {}).get("bbox")})
+        if not any(r.get("rule_id") in ("Net contents standard of fill", "Net contents matches") for r in results):
+            results.append({"rule_id": "Net contents", "category": "Alcohol & contents", "status": "pass", "message": f"Net contents found: {label_net}.", "bbox_ref": extracted.get("net_contents", {}).get("bbox")})
 
     return results
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .ocr import run_ocr
+from .ocr import run_ocr, OcrUnavailableError
 from .extraction import extract_fields
 from .rules.engine import run_rules
 from .scoring import compute_overall_status
@@ -38,7 +38,19 @@ def run_pipeline(image_input: Any, app_data: dict[str, Any]) -> dict[str, Any]:
     else:
         img = image_input.convert("RGB") if hasattr(image_input, "convert") else image_input
 
-    ocr_blocks = run_ocr(img)
+    try:
+        ocr_blocks = run_ocr(img)
+    except OcrUnavailableError as e:
+        return {
+            "ocr_blocks": [],
+            "extracted": {},
+            "rule_results": [],
+            "overall_status": "Critical issues",
+            "counts": {"pass": 0, "needs_review": 0, "fail": 0},
+            "image": img,
+            "error": str(e),
+        }
+
     extracted = extract_fields(ocr_blocks)
     rule_results = run_rules(extracted, app_data)
     overall, counts = compute_overall_status(rule_results)

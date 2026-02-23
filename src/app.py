@@ -26,7 +26,7 @@ st.set_page_config(
 st.markdown("""
 <style>
     .stApp { font-size: 1.05rem; }
-    [data-testid="stSidebar"] { font-size: 1.05rem; }
+    [data-testid="stSidebar"] { font-size: 0.95rem; }
     .status-banner {
         padding: 1rem 1.5rem;
         border-radius: 0.5rem;
@@ -42,36 +42,102 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ---------------------------------------------------------------------------
-# Demo / sample data
-# ---------------------------------------------------------------------------
+_SAMPLE_PRESETS = {
+    "test_1 — ABC Distillery (Spirits)": {
+        "brand_name": "ABC Distillery",
+        "class_type": "Single Barrel Straight Rye Whisky",
+        "alcohol_pct": "45",
+        "proof": "90",
+        "net_contents_ml": "750 mL",
+        "bottler_name": "ABC Distillery",
+        "bottler_city": "Frederick",
+        "bottler_state": "MD",
+        "imported": False,
+        "country_of_origin": "",
+        "beverage_type": "Distilled Spirits",
+    },
+    "test_2 — Malt & Hop Brewery (Beer)": {
+        "brand_name": "Malt & Hop Brewery",
+        "class_type": "Pale Ale",
+        "alcohol_pct": "5",
+        "proof": "",
+        "net_contents_ml": "24 fl oz",
+        "bottler_name": "Malt & Hop Brewery",
+        "bottler_city": "Hyattsville",
+        "bottler_state": "MD",
+        "imported": False,
+        "country_of_origin": "",
+        "beverage_type": "Beer / Malt Beverage",
+    },
+    "test_3 — Milo's Ale / Example Brewing (Beer)": {
+        "brand_name": "Milo's Ale",
+        "class_type": "Ale",
+        "alcohol_pct": "5",
+        "proof": "",
+        "net_contents_ml": "1 qt",
+        "bottler_name": "Example Brewing Company",
+        "bottler_city": "",
+        "bottler_state": "",
+        "imported": False,
+        "country_of_origin": "",
+        "beverage_type": "Beer / Malt Beverage",
+    },
+    "test_4 — Tiger's Special Barleywine (Beer)": {
+        "brand_name": "Tiger's Special",
+        "class_type": "Barleywine Ale",
+        "alcohol_pct": "9",
+        "proof": "",
+        "net_contents_ml": "12 fl oz",
+        "bottler_name": "",
+        "bottler_city": "",
+        "bottler_state": "",
+        "imported": False,
+        "country_of_origin": "",
+        "beverage_type": "Beer / Malt Beverage",
+    },
+    "test_5 — Downunder Winery (Wine, imported)": {
+        "brand_name": "Downunder Winery",
+        "class_type": "Red Wine",
+        "alcohol_pct": "12",
+        "proof": "",
+        "net_contents_ml": "750 mL",
+        "bottler_name": "OZ Imports",
+        "bottler_city": "",
+        "bottler_state": "",
+        "imported": True,
+        "country_of_origin": "Australia",
+        "beverage_type": "Wine",
+    },
+    "test_6 — ABC Winery (Wine)": {
+        "brand_name": "ABC Winery",
+        "class_type": "Merlot",
+        "alcohol_pct": "13",
+        "proof": "",
+        "net_contents_ml": "750 mL",
+        "bottler_name": "ABC Winery",
+        "bottler_city": "",
+        "bottler_state": "",
+        "imported": False,
+        "country_of_origin": "",
+        "beverage_type": "Wine",
+    },
+}
 
-_DEMO_DATA = {
-    "brand_name": "ABC",
-    "class_type": "Straight Rye Whisky",
-    "alcohol_pct": "45",
-    "proof": "",
-    "net_contents_ml": "750",
-    "bottler_name": "ABC Distillery",
-    "bottler_city": "Frederick",
-    "bottler_state": "MD",
-    "imported": False,
-    "country_of_origin": "",
+_BEVERAGE_TYPES = ["Distilled Spirits", "Wine", "Beer / Malt Beverage"]
+_BEV_TYPE_KEY_MAP = {
+    "Distilled Spirits": "spirits",
+    "Wine": "wine",
+    "Beer / Malt Beverage": "beer",
 }
 
 
 def main():
-    st.title("TTB Label Verification")
-    st.caption("Upload a label image, enter application data, and verify compliance.")
-
-    mode = st.radio(
+    mode = st.sidebar.radio(
         "Mode",
         ["Single label", "Batch review"],
         horizontal=True,
         label_visibility="collapsed",
     )
-    st.divider()
-
     if mode == "Single label":
         _single_label_screen()
     else:
@@ -79,65 +145,88 @@ def main():
 
 
 def _single_label_screen():
-    upload = st.file_uploader(
-        "Upload label image",
-        type=["png", "jpg", "jpeg"],
-        key="single_upload",
-        help="Supported formats: PNG, JPG. Photos of labels, scans, or digital artwork.",
-    )
+    with st.sidebar:
+        st.header("TTB Label Verification")
 
-    # Image preview before submission
-    if upload is not None:
-        st.image(upload, width=320, caption="Uploaded image preview")
+        upload = st.file_uploader(
+            "Upload label image",
+            type=["png", "jpg", "jpeg"],
+            key="single_upload",
+            help="PNG, JPG. Photos of labels, scans, or digital artwork.",
+        )
+        if upload is not None:
+            st.image(upload, width=220, caption="Preview")
 
-    # Demo fill button
-    if st.button("Fill with sample data (ABC Distillery)", type="secondary"):
-        st.session_state["demo_fill"] = True
-        st.rerun()
-    demo = st.session_state.pop("demo_fill", False)
+        preset_names = ["(none)"] + list(_SAMPLE_PRESETS.keys())
+        chosen_preset = st.selectbox("Fill sample data", preset_names, key="preset_select")
+        if st.button("Load preset", type="secondary"):
+            st.session_state["demo_fill"] = chosen_preset if chosen_preset != "(none)" else None
+            st.rerun()
 
-    def _dv(key: str, default: str = "") -> str:
-        return _DEMO_DATA.get(key, default) if demo else default
+        demo_key = st.session_state.get("demo_fill", None)
+        demo = _SAMPLE_PRESETS.get(demo_key) if demo_key else None
 
-    with st.form("single_form"):
-        st.markdown("#### Application data")
-        brand = st.text_input("Brand name", value=_dv("brand_name"), placeholder="e.g. ABC")
-        class_type = st.text_input("Class / type", value=_dv("class_type"), placeholder="e.g. Straight Rye Whisky")
+        def _dv(key: str, default: str = "") -> str:
+            if demo:
+                return demo.get(key, default)
+            return default
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            alcohol_pct = st.text_input("Alcohol %", value=_dv("alcohol_pct"), placeholder="e.g. 45")
-        with col2:
-            proof = st.text_input("Proof", value=_dv("proof"), placeholder="e.g. 90")
-        with col3:
-            net_contents_ml = st.text_input("Net contents (mL)", value=_dv("net_contents_ml"), placeholder="e.g. 750")
+        def _bev_idx() -> int:
+            if demo and demo.get("beverage_type") in _BEVERAGE_TYPES:
+                return _BEVERAGE_TYPES.index(demo["beverage_type"])
+            return 0
 
-        bottler_name = st.text_input("Bottler / Producer", value=_dv("bottler_name"), placeholder="e.g. ABC Distillery")
-        c1, c2 = st.columns(2)
-        with c1:
-            bottler_city = st.text_input("City", value=_dv("bottler_city"), placeholder="e.g. Frederick")
-        with c2:
-            bottler_state = st.text_input("State", value=_dv("bottler_state"), placeholder="e.g. MD")
+        with st.form("single_form"):
+            beverage_type = st.selectbox("Beverage type", _BEVERAGE_TYPES, index=_bev_idx())
+            brand = st.text_input("Brand name", value=_dv("brand_name"), placeholder="e.g. ABC Distillery")
+            class_type = st.text_input("Class / type", value=_dv("class_type"), placeholder="e.g. Straight Rye Whisky")
 
-        imported = st.checkbox("Imported product", value=_DEMO_DATA.get("imported", False) if demo else False)
-        country_of_origin = st.text_input("Country of origin (if imported)", value=_dv("country_of_origin"))
+            c1, c2 = st.columns(2)
+            with c1:
+                alcohol_pct = st.text_input("Alcohol %", value=_dv("alcohol_pct"), placeholder="45")
+            with c2:
+                proof = st.text_input("Proof", value=_dv("proof"), placeholder="90")
 
-        with st.expander("Special statements (optional)"):
-            sc1, sc2, sc3 = st.columns(3)
-            with sc1:
-                sulfites = st.checkbox("Sulfites")
-                fd_c_yellow_5 = st.checkbox("FD&C Yellow No. 5")
-            with sc2:
-                carmine = st.checkbox("Carmine")
-                wood_treatment = st.checkbox("Wood treatment")
-            with sc3:
-                age_statement = st.checkbox("Age statement")
-                neutral_spirits = st.checkbox("Neutral spirits %")
+            net_contents_ml = st.text_input(
+                "Net contents",
+                value=_dv("net_contents_ml"),
+                placeholder="e.g. 750 mL, 1 QT, 12 FL OZ",
+            )
+            bottler_name = st.text_input("Bottler / Producer", value=_dv("bottler_name"), placeholder="ABC Distillery")
 
-        submitted = st.form_submit_button("Check label", type="primary")
+            c3, c4 = st.columns(2)
+            with c3:
+                bottler_city = st.text_input("City", value=_dv("bottler_city"), placeholder="Frederick")
+            with c4:
+                bottler_state = st.text_input("State", value=_dv("bottler_state"), placeholder="MD")
+
+            imported = st.checkbox("Imported product", value=demo.get("imported", False) if demo else False)
+            country_of_origin = st.text_input("Country of origin", value=_dv("country_of_origin"))
+
+            with st.expander("Conditional statements"):
+                sc1, sc2 = st.columns(2)
+                with sc1:
+                    sulfites = st.checkbox("Sulfites")
+                    fd_c_yellow_5 = st.checkbox("FD&C Yellow No. 5")
+                    carmine = st.checkbox("Cochineal / Carmine")
+                with sc2:
+                    wood_treatment = st.checkbox("Wood treatment")
+                    age_statement = st.checkbox("Age statement")
+                    neutral_spirits = st.checkbox("Neutral spirits %")
+                    aspartame = st.checkbox("Aspartame")
+
+                if beverage_type == "Wine":
+                    appellation_required = st.checkbox("Appellation of origin")
+                    varietal_required = st.checkbox("Varietal designation")
+                else:
+                    appellation_required = False
+                    varietal_required = False
+
+            submitted = st.form_submit_button("Check label", type="primary", use_container_width=True)
 
     if submitted and upload is not None:
         app_data = {
+            "beverage_type": _BEV_TYPE_KEY_MAP.get(beverage_type, "spirits"),
             "brand_name": brand or "",
             "class_type": class_type or "",
             "alcohol_pct": alcohol_pct or "",
@@ -154,6 +243,9 @@ def _single_label_screen():
             "wood_treatment_required": wood_treatment,
             "age_statement_required": age_statement,
             "neutral_spirits_required": neutral_spirits,
+            "aspartame_required": aspartame,
+            "appellation_required": appellation_required,
+            "varietal_required": varietal_required,
         }
         if "single_highlight_bbox" in st.session_state:
             del st.session_state["single_highlight_bbox"]
@@ -174,7 +266,7 @@ def _single_label_screen():
             st.markdown(result["error"])
             st.markdown(
                 "**To analyze real labels:** Install [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) "
-                "(Windows) or `brew install tesseract` (Mac) / `apt install tesseract-ocr` (Linux), then add it to your PATH."
+                "(Windows) or `brew install tesseract` (Mac) / `apt install tesseract-ocr` (Linux), then add to PATH."
             )
             st.image(result.get("image") or upload.getvalue(), use_container_width=True, caption="Your label image")
             return
@@ -183,13 +275,15 @@ def _single_label_screen():
         st.warning("Please upload a label image.")
     elif "last_single_result" in st.session_state:
         _render_single_result(st.session_state["last_single_result"], st.session_state.get("last_single_image_bytes"))
+    else:
+        st.title("TTB Label Verification")
+        st.caption("Upload a label image in the sidebar, enter application data, and click **Check label**.")
 
 
 def _render_single_result(result: dict, image_bytes: bytes | None):
     overall = result.get("overall_status", "—")
     counts = result.get("counts", {})
 
-    # Prominent status banner
     css_class = {
         "Ready to approve": "status-pass",
         "Needs review": "status-review",
@@ -209,62 +303,72 @@ def _render_single_result(result: dict, image_bytes: bytes | None):
 
     highlight_bbox = st.session_state.get("single_highlight_bbox")
 
-    col_img, col_list = st.columns([1, 1])
+    col_img, col_tabs = st.columns([1, 1])
+
     with col_img:
         if img is not None:
             display_img = draw_bbox_on_image(img, highlight_bbox) if highlight_bbox else img
             st.image(display_img, use_container_width=True, caption="Label image")
         elif image_bytes:
             st.image(image_bytes, use_container_width=True, caption="Label image")
-
-    with col_list:
-        # Extracted vs expected comparison table
-        extracted = result.get("extracted", {})
-        _render_comparison_table(extracted, result)
-
-        st.markdown("---")
-
-        # Rule checklist by category
-        by_category: dict[str, list] = defaultdict(list)
-        for r in result.get("rule_results", []):
-            by_category[r.get("category", "Other")].append(r)
-
-        for cat in ("Identity", "Alcohol & contents", "Warning", "Origin", "Other"):
-            rules = by_category.get(cat, [])
-            if not rules:
-                continue
-            st.markdown(f"**{cat}**")
-            for i, r in enumerate(rules):
-                status = r.get("status", "pass")
-                icon = "✅" if status == "pass" else "⚠️" if status == "needs_review" else "❌"
-                rule_id = r.get("rule_id", "?")
-                msg = r.get("message", "")
-                bbox_ref = r.get("bbox_ref")
-                st.markdown(f"{icon} **{rule_id}**: {msg}")
-                if bbox_ref and img is not None:
-                    if st.button("Show on label", key=f"show_{cat.replace(' ', '_')}_{i}"):
-                        st.session_state["single_highlight_bbox"] = bbox_ref
-                        st.rerun()
-            st.markdown("")
-
         if highlight_bbox and st.button("Clear highlight"):
             if "single_highlight_bbox" in st.session_state:
                 del st.session_state["single_highlight_bbox"]
             st.rerun()
 
-    with st.expander("Raw OCR output"):
-        ocr_blocks = result.get("ocr_blocks", [])
-        if ocr_blocks:
-            st.caption(f"{len(ocr_blocks)} text blocks detected.")
-            texts = [b.get("text", "") for b in ocr_blocks]
-            st.code(" | ".join(texts), language=None)
-        else:
-            st.info("No OCR blocks detected.")
-    st.divider()
+    with col_tabs:
+        tab_check, tab_fields, tab_raw = st.tabs(["Checklist", "Extracted Fields", "Raw OCR"])
+
+        with tab_check:
+            by_category: dict[str, list] = defaultdict(list)
+            for r in result.get("rule_results", []):
+                by_category[r.get("category", "Other")].append(r)
+
+            for cat in ("Identity", "Alcohol & contents", "Warning", "Origin", "Other"):
+                rules = by_category.get(cat, [])
+                if not rules:
+                    continue
+                st.markdown(f"**{cat}**")
+                for i, r in enumerate(rules):
+                    status = r.get("status", "pass")
+                    icon = {"pass": "✅", "needs_review": "⚠️", "fail": "❌"}.get(status, "⚠️")
+
+                    rule_id = r.get("rule_id", "?")
+                    ext_val = r.get("extracted_value", "")
+                    app_val = r.get("app_value", "")
+                    msg = r.get("message", "")
+
+                    if ext_val or app_val:
+                        ext_display = f'"{ext_val}"' if ext_val else "(not found)"
+                        app_display = f'"{app_val}"' if app_val else "(not provided)"
+                        comparison = f'label {ext_display} vs application {app_display}'
+                        st.markdown(f'{icon} **{rule_id}**: {comparison}')
+                        if msg and status != "pass":
+                            st.caption(f"    _{msg}_")
+                    else:
+                        st.markdown(f"{icon} **{rule_id}**: {msg}")
+
+                    bbox_ref = r.get("bbox_ref")
+                    if bbox_ref and img is not None:
+                        if st.button("Show on label", key=f"show_{cat.replace(' ', '_')}_{i}"):
+                            st.session_state["single_highlight_bbox"] = bbox_ref
+                            st.rerun()
+
+        with tab_fields:
+            extracted = result.get("extracted", {})
+            _render_comparison_table(extracted, result)
+
+        with tab_raw:
+            ocr_blocks = result.get("ocr_blocks", [])
+            if ocr_blocks:
+                st.caption(f"{len(ocr_blocks)} text blocks detected.")
+                for b in ocr_blocks:
+                    st.text(b.get("text", ""))
+            else:
+                st.info("No OCR blocks detected.")
 
 
 def _render_comparison_table(extracted: dict, result: dict):
-    """Show extracted vs expected fields side-by-side."""
     fields = [
         ("Brand name", "brand_name"),
         ("Class / type", "class_type"),
@@ -280,7 +384,10 @@ def _render_comparison_table(extracted: dict, result: dict):
         val = extracted.get(key, {})
         if isinstance(val, dict):
             val = val.get("value", "")
-        rows.append({"Field": label, "Extracted from label": val or "(not found)"})
+        display_val = val if val else "(not found)"
+        if key == "government_warning" and len(display_val) > 80:
+            display_val = display_val[:80] + "..."
+        rows.append({"Field": label, "Extracted from label": display_val})
     df = pd.DataFrame(rows)
     st.dataframe(df, use_container_width=True, hide_index=True)
 
@@ -293,14 +400,18 @@ def _batch_screen():
     import zipfile
     from src.pipeline import run_pipeline
 
-    st.subheader("Batch review")
-    zip_upload = st.file_uploader("Upload ZIP of label images", type=["zip"], key="batch_zip")
-    csv_upload = st.file_uploader("Upload CSV (label_id and application data)", type=["csv"], key="batch_csv")
+    st.title("TTB Label Verification — Batch")
+
+    with st.sidebar:
+        st.header("Batch Upload")
+        zip_upload = st.file_uploader("Upload ZIP of label images", type=["zip"], key="batch_zip")
+        csv_upload = st.file_uploader("Upload CSV (application data)", type=["csv"], key="batch_csv")
+        run_batch = st.button("Run batch checks", key="batch_run", type="primary", use_container_width=True)
 
     batch_results = st.session_state.get("batch_results", [])
     selected_id = st.session_state.get("batch_selected_id")
 
-    if st.button("Run batch checks", key="batch_run"):
+    if run_batch:
         if not zip_upload or not csv_upload:
             st.warning("Please upload both a ZIP of images and a CSV.")
         else:
@@ -378,7 +489,7 @@ def _batch_screen():
 
         st.markdown("**View detail**")
         label_ids = [r["label_id"] for r in batch_results]
-        chosen = st.selectbox("Select a label to view full checklist", label_ids, key="batch_select")
+        chosen = st.selectbox("Select a label", label_ids, key="batch_select")
         if st.button("Show detail", key="batch_show_detail"):
             st.session_state["batch_selected_id"] = chosen
             st.rerun()
@@ -400,7 +511,7 @@ def _batch_screen():
         st.caption(
             "Upload a ZIP of label images and a CSV with columns: label_id, brand_name, "
             "class_type, alcohol_pct, proof, net_contents_ml, bottler_name, bottler_city, "
-            "bottler_state, imported, country_of_origin, and optional flags."
+            "bottler_state, imported, country_of_origin, beverage_type, and optional flags."
         )
 
 
@@ -421,6 +532,7 @@ def _normalize_csv_columns(df):
         "bottler state": "bottler_state", "bottler_state": "bottler_state",
         "imported": "imported",
         "country of origin": "country_of_origin", "country_of_origin": "country_of_origin",
+        "beverage type": "beverage_type", "beverage_type": "beverage_type",
         "sulfites required": "sulfites_required", "sulfites_required": "sulfites_required",
         "fd_c_yellow_5_required": "fd_c_yellow_5_required", "fd&c yellow 5": "fd_c_yellow_5_required",
         "carmine_required": "carmine_required", "carmine required": "carmine_required",
@@ -451,7 +563,15 @@ def _row_to_app_data(row):
     def b(key):
         return str(row.get(key, "")).strip().lower() in ("1", "true", "yes", "y") if key in row else False
 
+    bev_type_raw = v("beverage_type", "spirits").lower()
+    bev_type = "spirits"
+    if "wine" in bev_type_raw:
+        bev_type = "wine"
+    elif "beer" in bev_type_raw or "malt" in bev_type_raw:
+        bev_type = "beer"
+
     return {
+        "beverage_type": bev_type,
         "brand_name": v("brand_name"),
         "class_type": v("class_type"),
         "alcohol_pct": v("alcohol_pct"),

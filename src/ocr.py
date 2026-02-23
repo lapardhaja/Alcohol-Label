@@ -100,24 +100,55 @@ def _deskew(gray: np.ndarray, max_angle: float = 15.0) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 def _data_to_blocks(data: Any) -> list[dict[str, Any]]:
-    """Convert pytesseract image_to_data dict to list of block dicts."""
-    blocks: list[dict[str, Any]] = []
+    """
+    Convert pytesseract image_to_data dict to list of **line-level** block dicts.
+    Groups words by (block_num, par_num, line_num) so text reads coherently
+    even on multi-column / multi-panel label images.
+    """
+    from collections import defaultdict
+
     n = len(data.get("text", []))
+    has_hierarchy = all(k in data for k in ("block_num", "par_num", "line_num"))
+
+    if not has_hierarchy:
+        # Fallback: word-level blocks (e.g. from mocked data without hierarchy)
+        blocks: list[dict[str, Any]] = []
+        for i in range(n):
+            text = (data.get("text") or [])[i] or ""
+            if not text.strip():
+                continue
+            conf = float((data.get("conf") or [0])[i] or 0)
+            if conf < 0:
+                continue
+            x = int((data.get("left") or [0])[i])
+            y = int((data.get("top") or [0])[i])
+            w = int((data.get("width") or [0])[i])
+            ht = int((data.get("height") or [0])[i])
+            blocks.append({"text": text.strip(), "bbox": [x, y, x + w, y + ht], "confidence": conf})
+        return blocks
+
+    lines: dict[tuple, list[int]] = defaultdict(list)
     for i in range(n):
-        text = (data.get("text") or [])[i] or ""
-        if not text.strip():
+        text = (data["text"][i] or "").strip()
+        conf = float(data["conf"][i] or 0)
+        if not text or conf < 0:
             continue
-        conf = float((data.get("conf") or [0])[i] or 0)
-        if conf < 0:
-            continue
-        x = int((data.get("left") or [0])[i])
-        y = int((data.get("top") or [0])[i])
-        w = int((data.get("width") or [0])[i])
-        ht = int((data.get("height") or [0])[i])
+        key = (int(data["block_num"][i]), int(data["par_num"][i]), int(data["line_num"][i]))
+        lines[key].append(i)
+
+    blocks = []
+    for key in sorted(lines.keys()):
+        indices = lines[key]
+        words = [data["text"][i].strip() for i in indices]
+        x1 = min(int(data["left"][i]) for i in indices)
+        y1 = min(int(data["top"][i]) for i in indices)
+        x2 = max(int(data["left"][i]) + int(data["width"][i]) for i in indices)
+        y2 = max(int(data["top"][i]) + int(data["height"][i]) for i in indices)
+        avg_conf = sum(float(data["conf"][i]) for i in indices) / len(indices)
         blocks.append({
-            "text": text.strip(),
-            "bbox": [x, y, x + w, y + ht],
-            "confidence": conf,
+            "text": " ".join(words),
+            "bbox": [x1, y1, x2, y2],
+            "confidence": avg_conf,
         })
     return blocks
 
@@ -136,15 +167,31 @@ def _bbox_iou(a: list[int], b: list[int]) -> float:
     return inter / min(area_a, area_b)
 
 
+def _fuzzy_sim(a: str, b: str) -> float:
+    """Quick fuzzy similarity (0-1) for dedup. Uses difflib (no external deps)."""
+    a_n, b_n = a.lower().strip(), b.lower().strip()
+    if a_n == b_n:
+        return 1.0
+    try:
+        from rapidfuzz import fuzz
+        return fuzz.ratio(a_n, b_n) / 100.0
+    except ImportError:
+        import difflib
+        return difflib.SequenceMatcher(None, a_n, b_n).ratio()
+
+
 def _deduplicate_blocks(blocks: list[dict[str, Any]], iou_thresh: float = 0.4) -> list[dict[str, Any]]:
-    """Remove near-duplicate blocks (from multi-pass), keeping higher confidence."""
+    """Remove near-duplicate blocks (from multi-pass), keeping higher confidence.
+    Uses fuzzy string similarity when bboxes overlap to catch near-identical OCR variants
+    like 'ALC.VOL.' vs 'ALC./VOL.' that differ by one char."""
     blocks = sorted(blocks, key=lambda b: b["confidence"], reverse=True)
     kept: list[dict[str, Any]] = []
     for blk in blocks:
         duplicate = False
         for existing in kept:
-            if _bbox_iou(blk["bbox"], existing["bbox"]) > iou_thresh:
-                if blk["text"].lower().strip() == existing["text"].lower().strip():
+            iou = _bbox_iou(blk["bbox"], existing["bbox"])
+            if iou > iou_thresh:
+                if _fuzzy_sim(blk["text"], existing["text"]) > 0.85:
                     duplicate = True
                     break
                 if len(blk["text"]) <= len(existing["text"]):

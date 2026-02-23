@@ -44,26 +44,52 @@ def _x_overlap_ratio(a: dict, b: dict) -> float:
     return overlap / max(1, min_width)
 
 
+def _merge_bboxes(blocks: list[dict]) -> list[int] | None:
+    """Compute a single bbox spanning all blocks."""
+    boxes = [b.get("bbox") for b in blocks if b.get("bbox")]
+    if not boxes:
+        return None
+    return [
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Generic text filters
 # ---------------------------------------------------------------------------
 
 _HEADER_RE = re.compile(
     r"^(DISTILLED AND BOTTLED BY|BOTTLED BY|DISTILLED BY|PRODUCED BY|IMPORTED BY|"
+    r"BREWED\s*[&]\s*BOTTLED BY|BREWED AND BOTTLED BY|BREWED BY|"
     r"GOVERNMENT WARNING|Brand Label|Back Label)[\s:]*$",
     re.I,
 )
 
 _BOTTLER_HEADER_RE = re.compile(
-    r"(Distilled\s+and\s+Bottled\s+by|Bottled\s+by|Distilled\s+by|Produced\s+by|Imported\s+by)",
+    r"(Distilled\s+and\s+Bottled\s+by|Bottled\s+by|Distilled\s+by|Produced\s+by"
+    r"|Produced\s+and\s+Bottled\s+by|Imported\s+by"
+    r"|Brewed\s+(?:and|&)\s+Bottled\s+by|Brewed\s+by"
+    r"|Manufactured\s+by|Made\s+by"
+    r"|Cellared\s+and\s+Bottled\s+by|Vinted\s+and\s+Bottled\s+by"
+    r"|Blended\s+and\s+Bottled\s+by)",
     re.I,
 )
 
-_COMPANY_SUFFIXES = frozenset({
-    "DISTILLERY", "DISTILLERS", "BREWING", "BREWERY", "VINEYARDS", "WINERY",
-    "CELLARS", "IMPORTS", "SPIRITS", "COMPANY", "CO", "INC", "LLC", "LTD",
-    "CORP", "CORPORATION", "ESTATES", "RESERVE", "SELECTION",
+# Brand suffixes kept in the brand name (domain-specific)
+_BRAND_SUFFIXES = frozenset({
+    "DISTILLERY", "DISTILLERS", "BREWING", "BREWERY", "WINERY", "VINEYARDS",
+    "CELLARS", "IMPORTS", "SPIRITS", "ESTATES",
 })
+
+# Corporate suffixes stripped from brand (generic legal forms)
+_CORP_SUFFIXES = frozenset({
+    "COMPANY", "CO", "INC", "LLC", "LTD", "CORP", "CORPORATION",
+})
+
+_ALL_COMPANY_SUFFIXES = _BRAND_SUFFIXES | _CORP_SUFFIXES | {"RESERVE", "SELECTION"}
 
 _WARNING_WORDS = frozenset({
     "GOVERNMENT", "WARNING", "ACCORDING", "SURGEON", "GENERAL", "WOMEN",
@@ -72,6 +98,12 @@ _WARNING_WORDS = frozenset({
     "ABILITY", "DRIVE", "CAR", "OPERATE", "MACHINERY", "CAUSE", "HEALTH",
     "PROBLEMS",
 })
+
+
+_LABEL_MARKER_RE = re.compile(
+    r"^[↑↓\s]*Brand\s+Labels?\s*[↑↓\s]*$|^[↑↓\s]*Back\s+Labels?\s*[↑↓\s]*$",
+    re.I,
+)
 
 
 def _is_junk(text: str) -> bool:
@@ -84,6 +116,8 @@ def _is_junk(text: str) -> bool:
         return True
     if _HEADER_RE.match(t):
         return True
+    if _LABEL_MARKER_RE.match(t):
+        return True
     upper = t.upper()
     if upper in _WARNING_WORDS:
         return True
@@ -93,23 +127,130 @@ def _is_junk(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Spirit / class-type keywords
+# Class-type keywords (Bug 7: expanded with beer styles)
 # ---------------------------------------------------------------------------
 
 _CLASS_KEYWORDS = (
-    "Vodka", "Gin", "Rum", "Whiskey", "Whisky", "Bourbon", "Rye",
-    "Tequila", "Mezcal", "Brandy", "Cognac", "Armagnac", "Liqueur",
-    "Neutral Spirits", "Scotch", "Irish", "Canadian", "Blended",
+    # --- Distilled Spirits (27 CFR Part 5 / TTB Spirits BAM Ch4) ---
+    "Vodka", "Gin", "Distilled Gin", "Compounded Gin", "Redistilled Gin",
+    "Rum", "Tequila", "Mezcal",
+    "Whiskey", "Whisky", "Bourbon", "Bourbon Whisky", "Bourbon Whiskey",
+    "Rye Whisky", "Rye Whiskey", "Wheat Whisky", "Wheat Whiskey",
+    "Malt Whisky", "Malt Whiskey", "Corn Whisky", "Corn Whiskey",
+    "Straight Bourbon Whisky", "Straight Bourbon Whiskey",
+    "Straight Rye Whisky", "Straight Rye Whiskey",
+    "Straight Wheat Whisky", "Straight Wheat Whiskey",
+    "Straight Malt Whisky", "Straight Malt Whiskey",
+    "Straight Corn Whisky", "Straight Corn Whiskey",
+    "Straight Whisky", "Straight Whiskey",
+    "Light Whisky", "Light Whiskey",
+    "Blended Whisky", "Blended Whiskey",
+    "Blended Bourbon Whisky", "Blended Bourbon Whiskey",
+    "Blended Rye Whisky", "Blended Rye Whiskey",
+    "Spirit Whisky", "Spirit Whiskey",
+    "Scotch Whisky", "Irish Whiskey", "Canadian Whisky",
+    "Kentucky Straight Bourbon Whiskey", "Tennessee Whiskey",
     "Single Malt", "Single Barrel", "Single Pot Still",
-    "Tennessee", "Kentucky", "Straight", "Reserve", "Aged",
-    "Grappa", "Absinthe", "Port", "Sherry", "Vermouth", "Sake",
-    "Shochu", "Baijiu", "Cachaca", "Pisco",
+    "Brandy", "Cognac", "Armagnac", "Calvados", "Pisco", "Grappa",
+    "Fruit Brandy", "Applejack",
+    "Liqueur", "Cordial", "Sloe Gin", "Amaretto", "Triple Sec",
+    "Sambuca", "Absinthe", "Bitters", "Aquavit",
+    "Neutral Spirits", "Grain Spirits",
+    # --- Wine (27 CFR Part 4 / TTB Wine BAM Ch5) ---
+    "Table Wine", "Light Wine", "Dessert Wine",
+    "Red Wine", "Rose Wine", "White Wine",
+    "American Red Wine", "American White Wine",
+    "Sparkling Wine", "Champagne", "Carbonated Wine",
+    "Fortified Wine", "Sherry", "Port", "Madeira", "Marsala",
+    "Vermouth", "Sake", "Mead", "Honey Wine",
+    "Fruit Wine", "Citrus Wine", "Berry Wine",
+    "Agricultural Wine", "Retsina", "Natural Wine", "Special Natural Wine",
+    # --- Beer / Malt Beverages (27 CFR Part 7) ---
+    "Beer", "Ale", "Lager", "Stout", "Porter",
+    "Pale Ale", "India Pale Ale", "IPA",
+    "Barleywine Ale", "Barleywine", "Barley Wine",
+    "Pilsner", "Wheat Beer", "Hefeweizen",
+    "Kolsch", "Saison", "Sour", "Gose",
+    "Malt Liquor", "Malt Beverage", "Flavored Malt Beverage",
+    "Hard Seltzer", "Hard Cider",
+    # --- Generic qualifiers ---
+    "Straight", "Blended", "Reserve", "Aged",
+    "Scotch", "Irish", "Canadian", "Kentucky", "Tennessee",
+    "Shochu", "Baijiu", "Cachaca",
 )
 _CLASS_KEYWORD_SET = frozenset(k.upper() for k in _CLASS_KEYWORDS)
 _CLASS_RE = re.compile(
-    r"(?:" + "|".join(re.escape(k) for k in _CLASS_KEYWORDS) + r")",
+    r"(?:" + "|".join(re.escape(k) for k in sorted(_CLASS_KEYWORDS, key=len, reverse=True)) + r")",
     re.I,
 )
+
+
+# ---------------------------------------------------------------------------
+# ABV regexes (Bug 1: two-pass strict then loose)
+# ---------------------------------------------------------------------------
+
+_ABV_STRICT_RE = re.compile(
+    r"(?:ALC\.?\s*)"
+    r"(\d+(?:\.\d+)?)\s*%\s*"
+    r"(?:by\s+vol|Alc\.?/?Vol\.?|ALC/?VOL|alcohol\s+by\s+volume)",
+    re.I,
+)
+
+_ABV_QUAL_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*%\s*"
+    r"(?:Alc\.?/?Vol\.?|ALC/?VOL|by\s+vol|alcohol\s+by\s+volume)",
+    re.I,
+)
+
+_ABV_LOOSE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%", re.I)
+_PROOF_RE = re.compile(r"(\d+)\s*(?:Proof|PROOF)")
+
+# ---------------------------------------------------------------------------
+# Net contents regexes (Bug 2: imperial units)
+# ---------------------------------------------------------------------------
+
+_NET_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*"
+    r"(mL\.?|ml\.?|ML\.?|L\.?|litre|liter"
+    r"|FL\.?\s*OZ\.?|FLUID\s+OUNCES?|fl\.?\s*oz\.?"
+    r"|QT\.?|QUART"
+    r"|PT\.?|PINT"
+    r"|GAL\.?|GALLON)\b",
+    re.I,
+)
+
+_COMPOUND_NET_RE = re.compile(
+    r"(\d+)\s*(PINT|PT\.?)\s+(\d+)\s*(FL\.?\s*OZ\.?|FLUID\s+OUNCES?)",
+    re.I,
+)
+
+_LOCATION_RE = re.compile(r"[A-Z][a-z]+,\s*[A-Z]{2}\b")
+_COUNTRY_RE = re.compile(r"Product\s+of\s+(.+)", re.I)
+
+
+def _is_stop_content(text: str) -> bool:
+    """Return True if text is clearly not a class/type continuation."""
+    t = text.strip()
+    upper = t.upper()
+    if _ABV_QUAL_RE.search(t) or _ABV_STRICT_RE.search(t):
+        return True
+    if _BOTTLER_HEADER_RE.search(t):
+        return True
+    if "IMPORTED BY" in upper:
+        return True
+    if _NET_RE.search(t):
+        return True
+    if _COUNTRY_RE.search(t):
+        return True
+    if upper.startswith("CONTAINS"):
+        return True
+    if _LOCATION_RE.search(t) and not _CLASS_RE.search(t):
+        return True
+    if t in ("Brand Label", "Back Label"):
+        return True
+    if _LABEL_MARKER_RE.match(t):
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -143,32 +284,27 @@ def extract_fields(ocr_blocks: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Brand name
+# Brand name (Bug 6: keep domain suffixes, strip corp suffixes)
 # ---------------------------------------------------------------------------
 
 def _extract_brand(blocks: list[dict]) -> dict[str, Any]:
-    """
-    Strategy:
-    1. Look for a block adjacent to a company-suffix block (e.g. "ABC" before "DISTILLERY").
-    2. Fall back to the most prominent text in the top half (largest bbox height * text length).
-    """
-    # Strategy 1: company-suffix adjacency
     for i, b in enumerate(blocks):
         text_upper = (b.get("text") or "").strip().upper()
         words = text_upper.split()
         for word in words:
-            if word in _COMPANY_SUFFIXES:
-                # The brand might be part of this block (e.g. "ABC DISTILLERY")
+            if word in _ALL_COMPANY_SUFFIXES:
+                if word in _BRAND_SUFFIXES:
+                    full = (b.get("text") or "").strip()
+                    if len(full) >= 3:
+                        return {"value": full, "bbox": b.get("bbox")}
                 prefix = text_upper.split(word)[0].strip()
                 if prefix and len(prefix) >= 2:
                     return {"value": prefix, "bbox": b.get("bbox")}
-                # Or the previous block
                 if i > 0:
                     prev = (blocks[i - 1].get("text") or "").strip()
                     if prev and not _is_junk(prev) and len(prev) >= 2:
                         return {"value": prev, "bbox": blocks[i - 1].get("bbox")}
 
-    # Strategy 2: prominence in top half — largest bbox_height * len(text)
     if not blocks:
         return {"value": "", "bbox": None}
     max_y = max(b.get("bbox", [0, 0, 0, 0])[3] for b in blocks)
@@ -197,21 +333,21 @@ def _extract_brand(blocks: list[dict]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Class / type
+# Class / type (Bug 3: stop conditions)
 # ---------------------------------------------------------------------------
 
 def _extract_class_type(blocks: list[dict]) -> dict[str, Any]:
-    """
-    Find spirit type keywords and combine adjacent blocks to build the full designation.
-    E.g. "SINGLE BARREL" + "STRAIGHT RYE WHISKY" -> "SINGLE BARREL STRAIGHT RYE WHISKY".
-    """
     anchor_idx = None
     for i, b in enumerate(blocks):
         if _CLASS_RE.search(b.get("text", "")):
-            anchor_idx = i
-            break
+            if not _is_stop_content(b.get("text", "")):
+                anchor_idx = i
+                break
+            if _CLASS_RE.search(b.get("text", "")) and not _ABV_QUAL_RE.search(b.get("text", "")):
+                anchor_idx = i
+                break
+
     if anchor_idx is None:
-        # Try combined text of nearby blocks
         combined = " ".join(b.get("text", "") for b in blocks)
         m = _CLASS_RE.search(combined)
         if m:
@@ -222,58 +358,65 @@ def _extract_class_type(blocks: list[dict]) -> dict[str, Any]:
     y_thresh = _bbox_height(anchor) * 3
     collected = [anchor]
 
-    # Look backward for adjacent class-related blocks
+    _CLASS_ADJ = {"SINGLE", "BARREL", "STRAIGHT", "BLENDED", "DOUBLE", "TRIPLE",
+                  "SMALL", "BATCH", "RESERVE", "AGED", "OLD", "AMERICAN",
+                  "WHISKEY", "WHISKY", "WINE", "ALE"}
+
     for j in range(anchor_idx - 1, max(anchor_idx - 4, -1), -1):
         b = blocks[j]
         if _y_distance(b, anchor) > y_thresh:
             break
-        t = (b.get("text") or "").strip().upper()
-        if _CLASS_RE.search(t) or t in ("SINGLE", "BARREL", "STRAIGHT", "BLENDED", "DOUBLE", "TRIPLE", "SMALL", "BATCH", "RESERVE", "AGED", "OLD"):
+        t = (b.get("text") or "").strip()
+        if _is_stop_content(t):
+            break
+        upper = t.upper()
+        if _CLASS_RE.search(t) or upper in _CLASS_ADJ:
             collected.insert(0, b)
         else:
             break
 
-    # Look forward for continuation
     for j in range(anchor_idx + 1, min(anchor_idx + 4, len(blocks))):
         b = blocks[j]
         if _y_distance(b, anchor) > y_thresh:
             break
-        t = (b.get("text") or "").strip().upper()
-        if _CLASS_RE.search(t) or t in ("SINGLE", "BARREL", "STRAIGHT", "BLENDED", "DOUBLE", "TRIPLE", "SMALL", "BATCH", "RESERVE", "AGED", "OLD", "WHISKEY", "WHISKY"):
+        t = (b.get("text") or "").strip()
+        if _is_stop_content(t):
+            break
+        upper = t.upper()
+        if _CLASS_RE.search(t) or upper in _CLASS_ADJ:
             collected.append(b)
         else:
             break
 
     full_text = " ".join((b.get("text") or "").strip() for b in collected)
-    first_bbox = collected[0].get("bbox")
-    return {"value": full_text, "bbox": first_bbox}
+    return {"value": full_text, "bbox": _merge_bboxes(collected)}
 
 
 # ---------------------------------------------------------------------------
-# ABV / Proof
+# ABV / Proof (Bug 1: strict-first extraction)
 # ---------------------------------------------------------------------------
-
-_ABV_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%\s*(?:Alc\.?/?Vol\.?|ALC/?VOL|Alcohol\s+by\s+volume)?", re.I)
-_PROOF_RE = re.compile(r"(\d+)\s*(?:Proof|PROOF)")
-
 
 def _extract_abv_proof(blocks: list[dict]) -> dict[str, Any]:
     out: dict[str, Any] = {}
 
-    # Per-block search
+    # Strict per-block: "ALC. X% BY VOL" or "X% ALC/VOL"
     for b in blocks:
         t = b.get("text", "")
-        m = _ABV_RE.search(t)
+        m = _ABV_STRICT_RE.search(t)
+        if not m:
+            m = _ABV_QUAL_RE.search(t)
         if m and "alcohol_pct" not in out:
             out["alcohol_pct"] = {"value": m.group(1), "bbox": b.get("bbox")}
-        m = _PROOF_RE.search(t)
-        if m and "proof" not in out:
-            out["proof"] = {"value": m.group(1), "bbox": b.get("bbox")}
+        m2 = _PROOF_RE.search(t)
+        if m2 and "proof" not in out:
+            out["proof"] = {"value": m2.group(1), "bbox": b.get("bbox")}
 
-    # Combined text fallback (OCR splits "45" and "%" into separate blocks)
+    # Strict combined text fallback
     if "alcohol_pct" not in out:
         combined = " ".join(b.get("text", "") for b in blocks)
-        m = _ABV_RE.search(combined)
+        m = _ABV_STRICT_RE.search(combined)
+        if not m:
+            m = _ABV_QUAL_RE.search(combined)
         if m:
             pct = m.group(1)
             bbox = None
@@ -282,6 +425,15 @@ def _extract_abv_proof(blocks: list[dict]) -> dict[str, Any]:
                     bbox = b.get("bbox")
                     break
             out["alcohol_pct"] = {"value": pct, "bbox": bbox}
+
+    # Loose fallback only if strict found nothing
+    if "alcohol_pct" not in out:
+        for b in blocks:
+            t = b.get("text", "")
+            m = _ABV_LOOSE_RE.search(t)
+            if m:
+                out["alcohol_pct"] = {"value": m.group(1), "bbox": b.get("bbox")}
+                break
 
     if "proof" not in out:
         combined = " ".join(b.get("text", "") for b in blocks)
@@ -295,28 +447,36 @@ def _extract_abv_proof(blocks: list[dict]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Net contents
+# Net contents (Bug 2: imperial units)
 # ---------------------------------------------------------------------------
 
-_NET_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(mL\.?|ml\.?|ML\.?|L\.?|litre|liter)\b", re.I)
-
-
 def _extract_net_contents(blocks: list[dict]) -> dict[str, Any]:
-    # Per-block
+    # Check compound expressions first (e.g. "1 PINT 8 FL OZ")
+    combined = " ".join(b.get("text", "") for b in blocks)
+    mc = _COMPOUND_NET_RE.search(combined)
+    if mc:
+        bbox = None
+        for b in blocks:
+            if "PINT" in b.get("text", "").upper() or "FL" in b.get("text", "").upper():
+                bbox = b.get("bbox")
+                break
+        pints = int(mc.group(1))
+        oz = int(mc.group(3))
+        total_oz = pints * 16 + oz
+        return {"value": f"{total_oz} fl oz", "bbox": bbox}
+
     for b in blocks:
         m = _NET_RE.search(b.get("text", ""))
         if m:
             return _format_net(m, b.get("bbox"))
 
-    # Combined text fallback (OCR splits "750" and "ML")
-    combined = " ".join(b.get("text", "") for b in blocks)
     m = _NET_RE.search(combined)
     if m:
         bbox = None
         num = m.group(1)
         for b in blocks:
             t = b.get("text", "")
-            if num in t or "ml" in t.lower() or t.strip() == "L":
+            if num in t or "ml" in t.lower() or "oz" in t.lower() or "qt" in t.lower():
                 bbox = b.get("bbox")
                 break
         return _format_net(m, bbox)
@@ -325,29 +485,41 @@ def _extract_net_contents(blocks: list[dict]) -> dict[str, Any]:
 
 
 def _format_net(m: re.Match, bbox: Any) -> dict[str, Any]:
-    num, unit = m.group(1), m.group(2).rstrip(".").lower()
-    val = f"{num} L" if unit in ("l", "litre", "liter") else f"{num} mL"
+    num, unit_raw = m.group(1), m.group(2).rstrip(".").strip().lower()
+    unit_raw = re.sub(r"\s+", " ", unit_raw)
+    if unit_raw in ("l", "litre", "liter"):
+        val = f"{num} L"
+    elif unit_raw in ("ml",):
+        val = f"{num} mL"
+    elif "fl" in unit_raw or "fluid" in unit_raw:
+        val = f"{num} fl oz"
+    elif unit_raw in ("qt", "quart"):
+        val = f"{num} qt"
+    elif unit_raw in ("pt", "pint"):
+        val = f"{num} pt"
+    elif unit_raw in ("gal", "gallon"):
+        val = f"{num} gal"
+    else:
+        val = f"{num} mL"
     return {"value": val, "bbox": bbox}
 
 
 # ---------------------------------------------------------------------------
-# Government warning — spatial grouping
+# Government warning (Bug 4: tighter stop conditions)
 # ---------------------------------------------------------------------------
 
 def _extract_warning(blocks: list[dict]) -> dict[str, Any]:
-    """
-    Find "GOVERNMENT WARNING" anchor, then collect all blocks that are:
-    - Below or at the same y as the anchor
-    - Within a reasonable x-range (same column)
-    - Until a large y-gap or non-warning content appears
-    """
     anchor = None
     anchor_idx = None
     for i, b in enumerate(blocks):
         t = (b.get("text") or "").upper()
+        if "GOVERNMENT" in t and "WARNING" in t:
+            anchor = b
+            anchor_idx = i
+            break
         if "GOVERNMENT" in t:
             next_t = blocks[i + 1].get("text", "").upper() if i + 1 < len(blocks) else ""
-            if "WARNING" in t or "WARNING" in next_t:
+            if "WARNING" in next_t:
                 anchor = b
                 anchor_idx = i
                 break
@@ -359,70 +531,102 @@ def _extract_warning(blocks: list[dict]) -> dict[str, Any]:
     anchor_x_min = anchor_box[0]
     anchor_x_max = anchor_box[2]
     col_width = anchor_x_max - anchor_x_min
-    x_margin = max(col_width * 0.5, 50)
+    x_margin = max(col_width * 0.3, 30)
 
-    # Collect blocks spatially: same column, below anchor, within reasonable y-gap
-    parts = []
+    collected_blocks = []
     last_y = anchor_box[3]
     line_height = _bbox_height(anchor)
     max_gap = line_height * 3
 
     for b in blocks[anchor_idx:]:
         box = b.get("bbox", [0, 0, 0, 0])
-        # Must be roughly in the same column
         if box[0] > anchor_x_max + x_margin:
             continue
         if box[2] < anchor_x_min - x_margin:
             continue
-        # Must not be too far below the last collected block
-        if box[1] > last_y + max_gap and parts:
+        if box[1] > last_y + max_gap and collected_blocks:
             break
+
         t = (b.get("text") or "").strip()
-        # Stop on obvious non-warning markers
+        upper = t.upper()
+
         if t in ("Brand Label", "Back Label"):
             break
-        parts.append(t)
+        if upper.startswith("CONTAINS"):
+            break
+        if _NET_RE.search(t) and "GOVERNMENT" not in upper:
+            break
+        if _ABV_QUAL_RE.search(t) and "GOVERNMENT" not in upper:
+            break
+        if _CLASS_RE.search(t) and not any(w in upper for w in ("ALCOHOLIC", "BEVERAGES", "HEALTH", "PROBLEMS")):
+            break
+
+        if len(t) < 2 and not t.isdigit():
+            continue
+
+        collected_blocks.append(b)
         last_y = max(last_y, box[3])
 
+    parts = [(b.get("text") or "").strip() for b in collected_blocks]
     return {
         "value": " ".join(parts) if parts else "",
-        "bbox": anchor_box,
+        "bbox": _merge_bboxes(collected_blocks) if collected_blocks else None,
     }
 
 
 # ---------------------------------------------------------------------------
-# Bottler — multi-line
+# Bottler (Bug 5: stop conditions, Bug 8: more patterns)
 # ---------------------------------------------------------------------------
 
+_BOTTLER_FALLBACK_RE = re.compile(
+    r"([\w\s&']+(?:Brewery|Distillery|Winery|Cellars|Imports|Vineyards|Brewing\s+Company|Company))"
+    r"[\s,]+([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)\s*,\s*([A-Z]{2})\b",
+    re.I,
+)
+
+
 def _extract_bottler(blocks: list[dict]) -> dict[str, Any]:
-    """
-    Find "Bottled by" / "Distilled and Bottled by" header, then collect
-    subsequent blocks (name, city, state) within vertical proximity.
-    """
     for i, b in enumerate(blocks):
         t = (b.get("text") or "").strip()
         m = _BOTTLER_HEADER_RE.search(t)
         if m:
-            # Inline content after the header phrase (e.g. "Bottled by Old Tom Distillery, KY")
-            after = t[m.end():].strip().strip(":").strip()
-            parts = [t] if after else [t]
-            bbox = b.get("bbox")
+            collected = [b]
             line_h = _bbox_height(b)
-            # Collect next 1-3 blocks below this header
             for j in range(i + 1, min(i + 4, len(blocks))):
                 nb = blocks[j]
                 if _y_distance(nb, b) > line_h * 4:
                     break
                 nt = (nb.get("text") or "").strip()
+                upper_nt = nt.upper()
                 if _is_junk(nt) and len(nt) < 3:
                     continue
-                # Stop if we hit another section
-                if "GOVERNMENT" in nt.upper() or "WARNING" in nt.upper():
+                if "GOVERNMENT" in upper_nt or "WARNING" in upper_nt:
                     break
-                if re.match(r"^\d+\s*%", nt) or _NET_RE.match(nt):
+                if re.match(r"^\d+\s*%", nt):
                     break
-                parts.append(nt)
-            return {"value": " ".join(parts), "bbox": bbox}
+                if _NET_RE.match(nt):
+                    break
+                if _COUNTRY_RE.search(nt):
+                    break
+                if upper_nt.startswith("CONTAINS"):
+                    break
+                collected.append(nb)
+            parts = [(cb.get("text") or "").strip() for cb in collected]
+            return {"value": " ".join(parts), "bbox": _merge_bboxes(collected)}
+
+    # Fallback: look for "CompanyName, City, ST" pattern without a header
+    combined = " ".join((b.get("text") or "").strip() for b in blocks)
+    m = _BOTTLER_FALLBACK_RE.search(combined)
+    if m:
+        name = m.group(1).strip()
+        city = m.group(2).strip()
+        state = m.group(3).strip()
+        bbox = None
+        for b in blocks:
+            if name.split()[0] in (b.get("text") or ""):
+                bbox = b.get("bbox")
+                break
+        return {"value": f"{name}, {city}, {state}", "bbox": bbox}
 
     return {"value": "", "bbox": None}
 
@@ -430,9 +634,6 @@ def _extract_bottler(blocks: list[dict]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Country of origin
 # ---------------------------------------------------------------------------
-
-_COUNTRY_RE = re.compile(r"Product\s+of\s+(.+)", re.I)
-
 
 def _extract_country(blocks: list[dict]) -> dict[str, Any]:
     for b in blocks:

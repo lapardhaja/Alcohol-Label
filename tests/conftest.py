@@ -130,6 +130,52 @@ def ocr_blocks_split_abv():
 
 
 @pytest.fixture
+def ocr_blocks_imperial_net():
+    """Beer label with imperial net contents: 1 PINT 8 FL OZ."""
+    return [
+        {"text": "MALT & HOP BREWERY", "bbox": [10, 10, 250, 50], "confidence": 90},
+        {"text": "PALE ALE", "bbox": [10, 60, 120, 85], "confidence": 88},
+        {"text": "1 PINT 8 FL OZ", "bbox": [10, 95, 180, 115], "confidence": 91},
+        {"text": "5% ALC/VOL", "bbox": [10, 120, 120, 140], "confidence": 92},
+        {"text": "GOVERNMENT WARNING:", "bbox": [10, 180, 200, 200], "confidence": 89},
+        {"text": "According to the Surgeon General...", "bbox": [10, 210, 350, 235], "confidence": 82},
+        {"text": "Bottled by Malt & Hop Brewery, Hyattsville, MD", "bbox": [10, 250, 350, 275], "confidence": 85},
+    ]
+
+
+@pytest.fixture
+def ocr_blocks_overcollect():
+    """Wine label that triggers overcollection bugs if stop conditions are missing."""
+    return [
+        {"text": "DOWNUNDER WINERY", "bbox": [10, 10, 200, 45], "confidence": 90},
+        {"text": "RED WINE", "bbox": [10, 50, 120, 75], "confidence": 88},
+        {"text": "VICTORIA", "bbox": [10, 80, 100, 100], "confidence": 87},
+        {"text": "12% ALC./VOL.", "bbox": [10, 110, 140, 130], "confidence": 91},
+        {"text": "IMPORTED BY OZ IMPORTS", "bbox": [10, 140, 220, 160], "confidence": 89},
+        {"text": "Product of Australia", "bbox": [10, 165, 180, 185], "confidence": 90},
+        {"text": "CONTAINS SULFITES", "bbox": [10, 190, 160, 210], "confidence": 88},
+        {"text": "750 ML", "bbox": [10, 215, 80, 235], "confidence": 93},
+        {"text": "GOVERNMENT WARNING:", "bbox": [10, 260, 200, 280], "confidence": 91},
+        {"text": "(1) According to the Surgeon General...", "bbox": [10, 285, 350, 305], "confidence": 84},
+    ]
+
+
+@pytest.fixture
+def ocr_blocks_barleywine():
+    """Beer label with Barleywine Ale class and BREWED & BOTTLED BY."""
+    return [
+        {"text": "TIGER'S SPECIAL", "bbox": [10, 10, 200, 50], "confidence": 90},
+        {"text": "Barleywine Ale", "bbox": [10, 55, 160, 80], "confidence": 88},
+        {"text": "12 FLUID OUNCES", "bbox": [10, 90, 150, 110], "confidence": 91},
+        {"text": "9% ALC/VOL", "bbox": [10, 115, 110, 135], "confidence": 92},
+        {"text": "BREWED & BOTTLED BY:", "bbox": [10, 160, 200, 180], "confidence": 89},
+        {"text": "Tiger Brewing, Portland, OR", "bbox": [10, 185, 250, 205], "confidence": 87},
+        {"text": "GOVERNMENT WARNING:", "bbox": [10, 230, 200, 250], "confidence": 91},
+        {"text": "According to the Surgeon General...", "bbox": [10, 255, 350, 275], "confidence": 84},
+    ]
+
+
+@pytest.fixture
 def empty_ocr_blocks():
     return []
 

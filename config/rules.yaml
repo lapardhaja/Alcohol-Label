@@ -2,8 +2,10 @@
 # Tune these without code changes.
 
 similarity:
-  brand_class_pass: 0.95
-  brand_class_review: 0.80
+  brand_class_pass: 0.90
+  brand_class_review: 0.70
+  token_containment_score: 0.95
+  fuzzy_token_threshold: 0.85
 
 abv:
   pattern: '\d+(\.\d+)?\s*%\s*(Alc\.?/?Vol\.?|ALC/?VOL|Alcohol by volume)?'
@@ -37,51 +39,131 @@ origin:
 
 # Class / type keywords used for extraction and validation.
 class_type_keywords:
+  # Distilled Spirits (27 CFR Part 5 / TTB Spirits BAM Ch4)
   - Vodka
   - Gin
+  - Distilled Gin
+  - Compounded Gin
+  - Redistilled Gin
   - Rum
+  - Tequila
+  - Mezcal
   - Whiskey
   - Whisky
   - Bourbon
-  - Rye
+  - Bourbon Whisky
+  - Bourbon Whiskey
+  - Rye Whisky
+  - Rye Whiskey
+  - Wheat Whisky
+  - Wheat Whiskey
+  - Malt Whisky
+  - Malt Whiskey
+  - Corn Whisky
+  - Corn Whiskey
+  - Straight Bourbon Whisky
+  - Straight Bourbon Whiskey
   - Straight Rye Whisky
   - Straight Rye Whiskey
-  - Kentucky Straight Bourbon Whiskey
-  - Tennessee Whiskey
-  - Tequila
-  - Mezcal
-  - Brandy
-  - Cognac
-  - Armagnac
-  - Liqueur
-  - Cordial
-  - Neutral Spirits
-  - Scotch
+  - Straight Wheat Whisky
+  - Straight Wheat Whiskey
+  - Straight Malt Whisky
+  - Straight Malt Whiskey
+  - Straight Corn Whisky
+  - Straight Corn Whiskey
+  - Straight Whisky
+  - Straight Whiskey
+  - Light Whisky
+  - Light Whiskey
+  - Blended Whisky
+  - Blended Whiskey
+  - Blended Bourbon Whisky
+  - Blended Bourbon Whiskey
+  - Blended Rye Whisky
+  - Blended Rye Whiskey
+  - Spirit Whisky
+  - Spirit Whiskey
+  - Scotch Whisky
   - Irish Whiskey
   - Canadian Whisky
-  - Blended Whiskey
+  - Kentucky Straight Bourbon Whiskey
+  - Tennessee Whiskey
   - Single Malt
   - Single Barrel
   - Single Pot Still
-  - Grappa
-  - Absinthe
-  - Port
-  - Sherry
-  - Vermouth
-  - Sake
-  - Shochu
-  - Baijiu
-  - Cachaca
+  - Brandy
+  - Cognac
+  - Armagnac
+  - Calvados
   - Pisco
-  - Wine
+  - Grappa
+  - Fruit Brandy
+  - Applejack
+  - Liqueur
+  - Cordial
+  - Sloe Gin
+  - Amaretto
+  - Triple Sec
+  - Sambuca
+  - Absinthe
+  - Bitters
+  - Aquavit
+  - Neutral Spirits
+  - Grain Spirits
+  # Wine (27 CFR Part 4 / TTB Wine BAM Ch5)
+  - Table Wine
+  - Light Wine
+  - Dessert Wine
+  - Red Wine
+  - Rose Wine
+  - White Wine
   - Sparkling Wine
   - Champagne
+  - Carbonated Wine
+  - Fortified Wine
+  - Sherry
+  - Port
+  - Madeira
+  - Marsala
+  - Vermouth
+  - Sake
+  - Mead
+  - Honey Wine
+  - Fruit Wine
+  - Citrus Wine
+  - Berry Wine
+  - Agricultural Wine
+  - Retsina
+  - Natural Wine
+  - Special Natural Wine
+  # Beer / Malt Beverages (27 CFR Part 7)
   - Beer
   - Ale
   - Lager
   - Stout
-  - Mead
-  - Cider
+  - Porter
+  - Pale Ale
+  - India Pale Ale
+  - IPA
+  - Barleywine Ale
+  - Barleywine
+  - Barley Wine
+  - Pilsner
+  - Wheat Beer
+  - Hefeweizen
+  - Kolsch
+  - Saison
+  - Sour
+  - Gose
+  - Malt Liquor
+  - Malt Beverage
+  - Flavored Malt Beverage
+  - Hard Seltzer
+  - Hard Cider
+  # Other
+  - Shochu
+  - Baijiu
+  - Cachaca
 
 conditional_statements:
   sulfites: "Contains sulfites"
@@ -90,3 +172,59 @@ conditional_statements:
   wood_treatment: "Treated with"
   age_statement: "aged"
   neutral_spirits: "neutral spirits"
+
+# Per-beverage-type mandatory / conditional rule configuration
+beverage_types:
+  spirits:
+    mandatory:
+      - brand_name
+      - class_type
+      - alcohol_content
+      - net_contents
+      - bottler_producer
+      - government_warning
+    conditional:
+      - proof
+      - country_of_origin
+      - state_of_distillation
+      - age_statement
+      - commodity_statement
+      - coloring_materials
+      - wood_treatment
+      - fd_c_yellow_5
+      - sulfites
+    abv_mandatory: true
+    proof_optional: true
+  wine:
+    mandatory:
+      - brand_name
+      - class_type
+      - alcohol_content
+      - net_contents
+      - bottler_producer
+      - government_warning
+    conditional:
+      - country_of_origin
+      - appellation
+      - varietal
+      - vintage_date
+      - sulfites
+      - fd_c_yellow_5
+      - cochineal_carmine
+    abv_mandatory: true
+    sulfites_default: true
+  beer:
+    mandatory:
+      - brand_name
+      - class_type
+      - net_contents
+      - bottler_producer
+      - government_warning
+    conditional:
+      - alcohol_content
+      - country_of_origin
+      - fd_c_yellow_5
+      - cochineal_carmine
+      - sulfites
+      - aspartame
+    abv_mandatory: false

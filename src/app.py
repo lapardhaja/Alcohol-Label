@@ -15,10 +15,11 @@ _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+_LOGO_PATH = _root / "assets" / "logo.png"
 
 st.set_page_config(
-    page_title="TTB Label Verification",
-    page_icon="🏷️",
+    page_title="BottleProof — Computer Based Alcohol Label Validation",
+    page_icon=str(_LOGO_PATH),
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -39,7 +40,7 @@ st.markdown("""
     .status-review { background: #fff3cd; color: #856404; border: 2px solid #ffc107; }
     .status-fail { background: #f8d7da; color: #721c24; border: 2px solid #dc3545; }
     [class*="approve_btn"] button { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; }
-    [class*="reject_btn"] button { background-color: #dc3545 !important; border-color: #dc3545 !important; color: white !important; }
+    [class*="decline_btn"] button { background-color: #dc3545 !important; border-color: #dc3545 !important; color: white !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -49,7 +50,7 @@ _SAMPLE_PRESETS = {
         "brand_name": "ABC Distillery",
         "class_type": "Single Barrel Straight Rye Whisky",
         "alcohol_pct": "45",
-        "proof": "90",
+        "proof": "",
         "net_contents_ml": "750 mL",
         "bottler_name": "ABC Distillery",
         "bottler_city": "Frederick",
@@ -133,6 +134,36 @@ _BEV_TYPE_KEY_MAP = {
 }
 
 
+def _get_form_fill_from_session():
+    """Return preset or selected-app form data for form prefill."""
+    sel_id = st.session_state.get("selected_app_id")
+    sel_bucket = st.session_state.get("selected_app_bucket")
+    if sel_id and sel_bucket:
+        apps = st.session_state.get(sel_bucket, [])
+        entry = next((a for a in apps if a.get("id") == sel_id), None)
+        if entry and entry.get("app_data"):
+            ad = entry["app_data"]
+            bev = ad.get("beverage_type", "spirits")
+            bev_display = {"spirits": "Distilled Spirits", "wine": "Wine", "beer": "Beer / Malt Beverage"}.get(bev, "Distilled Spirits")
+            return {
+                "brand_name": ad.get("brand_name", ""),
+                "class_type": ad.get("class_type", ""),
+                "alcohol_pct": ad.get("alcohol_pct", ""),
+                "proof": ad.get("proof", ""),
+                "net_contents_ml": ad.get("net_contents_ml", ""),
+                "bottler_name": ad.get("bottler_name", ""),
+                "bottler_city": ad.get("bottler_city", ""),
+                "bottler_state": ad.get("bottler_state", ""),
+                "imported": ad.get("imported", False),
+                "country_of_origin": ad.get("country_of_origin", ""),
+                "beverage_type": bev_display,
+            }
+    demo_key = st.session_state.get("demo_fill")
+    if demo_key and demo_key in _SAMPLE_PRESETS:
+        return _SAMPLE_PRESETS[demo_key]
+    return {}
+
+
 def _init_app_lists():
     from src.storage import load_applications
     if "applications_under_review" not in st.session_state:
@@ -141,22 +172,25 @@ def _init_app_lists():
         st.session_state["applications_approved"] = data["applications_approved"]
         st.session_state["applications_rejected"] = data["applications_rejected"]
     if "app_list_view" not in st.session_state:
-        st.session_state["app_list_view"] = "under_review"
+        st.session_state["app_list_view"] = "create_new"  # enter create new immediately
     if "selected_app_id" not in st.session_state:
         st.session_state["selected_app_id"] = None
     if "selected_app_bucket" not in st.session_state:
         st.session_state["selected_app_bucket"] = None
     if "adding_new_application" not in st.session_state:
-        st.session_state["adding_new_application"] = False
+        st.session_state["adding_new_application"] = True  # default to create new
 
 
 def main():
-    mode = st.sidebar.radio(
-        "Mode",
-        ["Single label", "Batch review"],
-        horizontal=True,
-        label_visibility="collapsed",
-    )
+    with st.sidebar:
+        if _LOGO_PATH.exists():
+            st.image(str(_LOGO_PATH), width=180)
+        mode = st.radio(
+            "Mode",
+            ["Single label", "Batch review"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
     if mode == "Single label":
         _init_app_lists()
         _single_label_screen()
@@ -165,169 +199,145 @@ def main():
 
 
 def _single_label_screen():
-    # Process pending approve/reject at start of run (ensures session state persists)
-    _pending = st.session_state.pop("_pending_approve", None) or st.session_state.pop("_pending_reject", None)
-    if _pending:
-        action = _pending.get("action")  # "approve" or "reject"
-        entry = _pending.get("entry")
-        selected_id = _pending.get("selected_id")
-        from src.storage import load_applications, save_applications
-        data = load_applications()
-        if selected_id:
-            data["applications_under_review"] = [a for a in data["applications_under_review"] if a.get("id") != selected_id]
-        if action == "approve":
-            data["applications_approved"] = data["applications_approved"] + [entry]
-            st.session_state["app_list_view"] = "approved"
-            st.session_state["app_list_radio"] = "Approved"
-        else:
-            data["applications_rejected"] = data["applications_rejected"] + [entry]
-            st.session_state["app_list_view"] = "rejected"
-            st.session_state["app_list_radio"] = "Rejected"
-        save_applications(
-            data["applications_under_review"],
-            data["applications_approved"],
-            data["applications_rejected"],
-        )
-        st.session_state["selected_app_id"] = None
-        st.session_state["selected_app_bucket"] = None
-        st.session_state["adding_new_application"] = False
-        for k in ("last_single_result", "last_single_image_bytes", "last_single_app_data", "last_single_entry_id"):
-            st.session_state.pop(k, None)
-        # Don't rerun — continue this run so sidebar sees app_list_view and shows Approved list
-
     with st.sidebar:
-        st.header("TTB Label Verification")
-
-        _options = ["Applications Under Review", "Approved", "Rejected"]
-        _view_to_option = {"under_review": _options[0], "approved": _options[1], "rejected": _options[2]}
-        _current_view = st.session_state.get("app_list_view", "under_review")
-        if st.session_state.get("app_list_radio") != _view_to_option.get(_current_view, _options[0]):
-            st.session_state["app_list_radio"] = _view_to_option.get(_current_view, _options[0])
-
-        view = st.radio(
-            "Applications",
-            _options,
-            key="app_list_radio",
-            label_visibility="collapsed",
-        )
-        view_key = {"Applications Under Review": "under_review", "Approved": "approved", "Rejected": "rejected"}[view]
-
-        if view_key != st.session_state.get("app_list_view"):
-            st.session_state["app_list_view"] = view_key
-            st.session_state["selected_app_id"] = None
-            st.session_state["selected_app_bucket"] = None
-            st.session_state["adding_new_application"] = False
-
-        st.divider()
-
-        # Form in sidebar when adding new OR when an application is selected (auto-load)
-        _show_form = st.session_state.get("adding_new_application") or st.session_state.get("selected_app_id")
-        if _show_form:
-            if st.session_state.get("adding_new_application"):
-                upload = st.file_uploader(
-                    "Upload label image",
-                    type=["png", "jpg", "jpeg"],
-                    key="single_upload",
-                    help="PNG, JPG. Photos of labels, scans, or digital artwork.",
-                )
-                if upload is not None:
-                    st.image(upload, width=220, caption="Preview")
-            else:
-                upload = None
-
-            preset_names = ["(none)"] + list(_SAMPLE_PRESETS.keys())
-            def _on_preset_change():
-                v = st.session_state.get("preset_select")
-                st.session_state["demo_fill"] = v if v and v != "(none)" else None
+        view_key = st.session_state.get("app_list_view", "create_new")
+        if view_key != "create_new":
+            if st.button("New label", key="sidebar_new_label"):
+                st.session_state["app_list_view"] = "create_new"
                 st.session_state["selected_app_id"] = None
                 st.session_state["selected_app_bucket"] = None
+                st.rerun()
+        st.divider()
 
-            chosen_preset = st.selectbox(
+        _show_form = (view_key == "create_new") or st.session_state.get("selected_app_id")
+        if _show_form:
+            preset_names = ["New Application"] + list(_SAMPLE_PRESETS.keys())
+            _create_keys = (
+                "create_beverage_type", "create_brand_name", "create_class_type", "create_alcohol_pct", "create_proof",
+                "create_net_contents_ml", "create_bottler_name", "create_bottler_city", "create_bottler_state",
+                "create_imported", "create_country_of_origin", "create_sulfites", "create_fd_c_yellow_5", "create_carmine",
+                "create_wood_treatment", "create_age_statement", "create_neutral_spirits", "create_aspartame",
+                "create_appellation_required", "create_varietal_required",
+            )
+
+            def _on_preset_change():
+                v = st.session_state.get("preset_select")
+                st.session_state["demo_fill"] = v if v and v != "New Application" else None
+                st.session_state["selected_app_id"] = None
+                st.session_state["selected_app_bucket"] = None
+                st.session_state["preset_just_changed"] = True
+                for k in _create_keys:
+                    st.session_state.pop(k, None)
+
+            st.selectbox(
                 "Application presets",
                 preset_names,
                 key="preset_select",
                 on_change=_on_preset_change,
             )
-            if st.button("Create new application", type="primary", key="btn_create_new"):
-                st.session_state["adding_new_application"] = True
-                st.session_state["selected_app_id"] = None
-                st.session_state["selected_app_bucket"] = None
-                st.session_state["demo_fill"] = None
-                st.rerun()
+            if view_key == "create_new":
+                _form_fill = _get_form_fill_from_session()
+                ss = st.session_state
+                if _form_fill:
+                    # Pre-fill Application details from preset when keys are missing (e.g. after preset change)
+                    ss.setdefault("create_beverage_type", _form_fill.get("beverage_type") or _BEVERAGE_TYPES[0])
+                    ss.setdefault("create_brand_name", _form_fill.get("brand_name") or "")
+                    ss.setdefault("create_class_type", _form_fill.get("class_type") or "")
+                    ss.setdefault("create_alcohol_pct", _form_fill.get("alcohol_pct") or "")
+                    ss.setdefault("create_proof", _form_fill.get("proof") or "")
+                    ss.setdefault("create_net_contents_ml", _form_fill.get("net_contents_ml") or "")
+                    ss.setdefault("create_bottler_name", _form_fill.get("bottler_name") or "")
+                    ss.setdefault("create_bottler_city", _form_fill.get("bottler_city") or "")
+                    ss.setdefault("create_bottler_state", _form_fill.get("bottler_state") or "")
+                    ss.setdefault("create_imported", _form_fill.get("imported", False))
+                    ss.setdefault("create_country_of_origin", _form_fill.get("country_of_origin") or "")
+                    if ss.get("preset_just_changed"):
+                        ss["create_details_last_saved"] = {k: ss.get(k) for k in _create_keys}
+                        ss["preset_just_changed"] = False
 
-        # Form fill: selected app (auto-load) > preset > empty
-        def _get_form_fill():
-            sel_id = st.session_state.get("selected_app_id")
-            sel_bucket = st.session_state.get("selected_app_bucket")
-            if sel_id and sel_bucket:
-                apps = st.session_state.get(sel_bucket, [])
-                entry = next((a for a in apps if a.get("id") == sel_id), None)
-                if entry and entry.get("app_data"):
-                    ad = entry["app_data"]
-                    bev = ad.get("beverage_type", "spirits")
-                    bev_display = {"spirits": "Distilled Spirits", "wine": "Wine", "beer": "Beer / Malt Beverage"}.get(bev, "Distilled Spirits")
-                    return {
-                        "brand_name": ad.get("brand_name", ""),
-                        "class_type": ad.get("class_type", ""),
-                        "alcohol_pct": ad.get("alcohol_pct", ""),
-                        "proof": ad.get("proof", ""),
-                        "net_contents_ml": ad.get("net_contents_ml", ""),
-                        "bottler_name": ad.get("bottler_name", ""),
-                        "bottler_city": ad.get("bottler_city", ""),
-                        "bottler_state": ad.get("bottler_state", ""),
-                        "imported": ad.get("imported", False),
-                        "country_of_origin": ad.get("country_of_origin", ""),
-                        "beverage_type": bev_display,
-                    }
-            demo_key = st.session_state.get("demo_fill")
-            if demo_key and demo_key in _SAMPLE_PRESETS:
-                return _SAMPLE_PRESETS[demo_key]
-            return {}
+                def _dv(key: str, default: str = "") -> str:
+                    v = _form_fill.get(key, default) if _form_fill else default
+                    return str(v) if v is not None else default
 
-        _form_fill = _get_form_fill()
+                def _bev_idx() -> int:
+                    if _form_fill and _form_fill.get("beverage_type") in _BEVERAGE_TYPES:
+                        return _BEVERAGE_TYPES.index(_form_fill["beverage_type"])
+                    return 0
 
-        def _dv(key: str, default: str = "") -> str:
-            if _form_fill:
-                v = _form_fill.get(key, default)
+                with st.expander("Application details", expanded=True):
+                    _bev = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
+                    _bev_idx_val = _BEVERAGE_TYPES.index(_bev) if _bev in _BEVERAGE_TYPES else 0
+                    st.selectbox("Beverage type", _BEVERAGE_TYPES, index=_bev_idx_val, key="create_beverage_type")
+                    st.text_input("Brand name", value=_dv("brand_name"), placeholder="e.g. ABC Distillery", key="create_brand_name")
+                    st.text_input("Class / type", value=_dv("class_type"), placeholder="e.g. Straight Rye Whisky", key="create_class_type")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.text_input("Alcohol %", value=_dv("alcohol_pct"), placeholder="45", key="create_alcohol_pct")
+                    with c2:
+                        st.text_input("Proof", value=_dv("proof"), placeholder="90", key="create_proof")
+                    st.text_input("Net contents", value=_dv("net_contents_ml"), placeholder="e.g. 750 mL, 1 QT, 12 FL OZ", key="create_net_contents_ml")
+                    st.text_input("Bottler / Producer", value=_dv("bottler_name"), placeholder="ABC Distillery", key="create_bottler_name")
+                    c3, c4 = st.columns(2)
+                    with c3:
+                        st.text_input("City", value=_dv("bottler_city"), placeholder="Frederick", key="create_bottler_city")
+                    with c4:
+                        st.text_input("State", value=_dv("bottler_state"), placeholder="MD", key="create_bottler_state")
+                    st.checkbox("Imported product", value=_form_fill.get("imported", False) if _form_fill else False, key="create_imported")
+                    st.text_input("Country of origin", value=_dv("country_of_origin"), key="create_country_of_origin")
+                    with st.expander("Conditional statements"):
+                        sc1, sc2 = st.columns(2)
+                        with sc1:
+                            st.checkbox("Sulfites", key="create_sulfites")
+                            st.checkbox("FD&C Yellow No. 5", key="create_fd_c_yellow_5")
+                            st.checkbox("Cochineal / Carmine", key="create_carmine")
+                        with sc2:
+                            st.checkbox("Wood treatment", key="create_wood_treatment")
+                            st.checkbox("Age statement", key="create_age_statement")
+                            st.checkbox("Neutral spirits %", key="create_neutral_spirits")
+                            st.checkbox("Aspartame", key="create_aspartame")
+                        if st.session_state.get("create_beverage_type", _BEVERAGE_TYPES[0]) == "Wine":
+                            st.checkbox("Appellation of origin", key="create_appellation_required")
+                            st.checkbox("Varietal designation", key="create_varietal_required")
+
+                # Save changes: show when Application details differ from last saved
+                if view_key == "create_new":
+                    _current_snapshot = {k: ss.get(k) for k in _create_keys}
+                    if "create_details_last_saved" not in ss:
+                        ss["create_details_last_saved"] = _current_snapshot
+                    _last_saved = ss.get("create_details_last_saved") or {}
+                    _dirty = _current_snapshot != _last_saved
+                    if _dirty:
+                        if st.button("Save changes", key="sidebar_save_changes", type="primary"):
+                            ss["create_details_last_saved"] = {k: ss.get(k) for k in _create_keys}
+                            st.success("Changes saved.")
+                            st.rerun()
+        if view_key != "create_new" and st.session_state.get("selected_app_id"):
+            _form_fill = _get_form_fill_from_session()
+            def _dv(key: str, default: str = "") -> str:
+                v = _form_fill.get(key, default) if _form_fill else default
                 return str(v) if v is not None else default
-            return default
-
-        def _bev_idx() -> int:
-            if _form_fill and _form_fill.get("beverage_type") in _BEVERAGE_TYPES:
-                return _BEVERAGE_TYPES.index(_form_fill["beverage_type"])
-            return 0
-
-        if not _show_form:
-            upload = None
-            submitted = False
-        else:
-            with st.form("single_form"):
+            def _bev_idx() -> int:
+                if _form_fill and _form_fill.get("beverage_type") in _BEVERAGE_TYPES:
+                    return _BEVERAGE_TYPES.index(_form_fill["beverage_type"])
+                return 0
+            with st.form("sidebar_form"):
                 beverage_type = st.selectbox("Beverage type", _BEVERAGE_TYPES, index=_bev_idx())
                 brand = st.text_input("Brand name", value=_dv("brand_name"), placeholder="e.g. ABC Distillery")
                 class_type = st.text_input("Class / type", value=_dv("class_type"), placeholder="e.g. Straight Rye Whisky")
-
                 c1, c2 = st.columns(2)
                 with c1:
                     alcohol_pct = st.text_input("Alcohol %", value=_dv("alcohol_pct"), placeholder="45")
                 with c2:
                     proof = st.text_input("Proof", value=_dv("proof"), placeholder="90")
-
-                net_contents_ml = st.text_input(
-                    "Net contents",
-                    value=_dv("net_contents_ml"),
-                    placeholder="e.g. 750 mL, 1 QT, 12 FL OZ",
-                )
+                net_contents_ml = st.text_input("Net contents", value=_dv("net_contents_ml"), placeholder="e.g. 750 mL")
                 bottler_name = st.text_input("Bottler / Producer", value=_dv("bottler_name"), placeholder="ABC Distillery")
-
                 c3, c4 = st.columns(2)
                 with c3:
                     bottler_city = st.text_input("City", value=_dv("bottler_city"), placeholder="Frederick")
                 with c4:
                     bottler_state = st.text_input("State", value=_dv("bottler_state"), placeholder="MD")
-
                 imported = st.checkbox("Imported product", value=_form_fill.get("imported", False))
                 country_of_origin = st.text_input("Country of origin", value=_dv("country_of_origin"))
-
                 with st.expander("Conditional statements"):
                     sc1, sc2 = st.columns(2)
                     with sc1:
@@ -339,18 +349,18 @@ def _single_label_screen():
                         age_statement = st.checkbox("Age statement")
                         neutral_spirits = st.checkbox("Neutral spirits %")
                         aspartame = st.checkbox("Aspartame")
-
+                    appellation_required = varietal_required = False
                     if beverage_type == "Wine":
                         appellation_required = st.checkbox("Appellation of origin")
                         varietal_required = st.checkbox("Varietal designation")
-                    else:
-                        appellation_required = False
-                        varietal_required = False
-
                 submitted = st.form_submit_button("Check label", type="primary", width="stretch")
+            upload = None  # sidebar form has no upload when viewing selected item
+        else:
+            upload = None
+            submitted = False
 
-    view = st.session_state.get("app_list_view", "under_review")
-    adding_new = st.session_state.get("adding_new_application", False)
+    view = st.session_state.get("app_list_view", "create_new")
+    adding_new = view == "create_new"
     if not adding_new:
         upload = None
         submitted = False
@@ -414,31 +424,108 @@ def _single_label_screen():
             "result": {k: v for k, v in result.items() if k != "image"},
         }
         _render_single_result(result, upload.getvalue(), approve_reject={"entry": entry, "selected_id": None})
-        if st.button("Cancel", key="add_cancel_submit"):
-            st.session_state["adding_new_application"] = False
-            st.rerun()
         return
     if submitted and upload is None and adding_new:
         st.warning("Please upload a label image.")
         return
 
-    # Adding new: show placeholder when form in sidebar, no result yet
+    # Create new: main area — title, large upload, preview, replace option, Check label
     if adding_new and "last_single_result" not in st.session_state:
-        st.info("Fill the form in the sidebar and click **Check label**.")
-        if st.button("Cancel", key="add_cancel_early"):
-            st.session_state["adding_new_application"] = False
-            st.rerun()
+        st.title("BottleProof")
+        st.markdown("**Computer Based Alcohol Label Validation**")
+
+        with st.form("main_form", clear_on_submit=False):
+            # Large upload area (wider center column)
+            _, center_col, _ = st.columns([0.5, 3, 0.5])
+            with center_col:
+                upload = st.file_uploader(
+                    "Upload label image",
+                    type=["png", "jpg", "jpeg"],
+                    key="single_upload",
+                    help="PNG, JPG. Photos of labels, scans, or digital artwork.",
+                )
+                if upload is not None:
+                    st.image(upload, width=500, caption="Preview")
+
+            st.markdown(
+                """
+                <style>
+                div[data-testid="stFormSubmitButton"] button {
+                    background-color: #28a745 !important;
+                    border: 1px solid #28a745 !important;
+                    outline: none !important;
+                    box-shadow: none !important;
+                    font-size: 1.15rem !important;
+                    padding: 0.6rem 1.8rem !important;
+                }
+                div[data-testid="stFormSubmitButton"] button:hover,
+                div[data-testid="stFormSubmitButton"] button:focus {
+                    background-color: #218838 !important;
+                    border-color: #218838 !important;
+                    outline: none !important;
+                    box-shadow: none !important;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+            _, btn_col, _ = st.columns([0.5, 3, 0.5])
+            with btn_col:
+                submitted = st.form_submit_button("Check label", type="primary", width="stretch")
+
+        if submitted and upload is not None:
+            # Read application details from sidebar (session state)
+            ss = st.session_state
+            beverage_type = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
+            app_data = {
+                "beverage_type": _BEV_TYPE_KEY_MAP.get(beverage_type, "spirits"),
+                "brand_name": ss.get("create_brand_name", "") or "",
+                "class_type": ss.get("create_class_type", "") or "",
+                "alcohol_pct": ss.get("create_alcohol_pct", "") or "",
+                "proof": ss.get("create_proof", "") or "",
+                "net_contents_ml": ss.get("create_net_contents_ml", "") or "",
+                "bottler_name": ss.get("create_bottler_name", "") or "",
+                "bottler_city": ss.get("create_bottler_city", "") or "",
+                "bottler_state": ss.get("create_bottler_state", "") or "",
+                "imported": ss.get("create_imported", False),
+                "country_of_origin": ss.get("create_country_of_origin", "") or "",
+                "sulfites_required": ss.get("create_sulfites", False),
+                "fd_c_yellow_5_required": ss.get("create_fd_c_yellow_5", False),
+                "carmine_required": ss.get("create_carmine", False),
+                "wood_treatment_required": ss.get("create_wood_treatment", False),
+                "age_statement_required": ss.get("create_age_statement", False),
+                "neutral_spirits_required": ss.get("create_neutral_spirits", False),
+                "aspartame_required": ss.get("create_aspartame", False),
+                "appellation_required": ss.get("create_appellation_required", False),
+                "varietal_required": ss.get("create_varietal_required", False),
+            }
+            with st.spinner("Analyzing label..."):
+                try:
+                    from src.pipeline import run_pipeline
+                    result = run_pipeline(upload.getvalue(), app_data)
+                    if result.get("error"):
+                        st.error("**OCR unavailable**")
+                        st.markdown(result["error"])
+                    else:
+                        st.session_state["last_single_result"] = result
+                        st.session_state["last_single_image_bytes"] = upload.getvalue()
+                        st.session_state["last_single_app_data"] = app_data
+                        st.session_state["last_single_entry_id"] = st.session_state.get("last_single_entry_id") or str(uuid.uuid4())
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Analysis failed: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
         return
 
-    # List or detail view for Under Review / Approved / Rejected
-    if view in ("under_review", "approved", "rejected"):
-        bucket = {"under_review": "applications_under_review", "approved": "applications_approved", "rejected": "applications_rejected"}[view]
-        # All lists read from JSON (single source of truth)
+    # Under Review list or detail view
+    if view == "under_review":
         from src.storage import load_applications
         data = load_applications()
-        apps = data[bucket]
+        apps = data["applications_under_review"]
         selected_id = st.session_state.get("selected_app_id")
         selected_bucket = st.session_state.get("selected_app_bucket")
+        bucket = "applications_under_review"
 
         if selected_id and selected_bucket == bucket:
             entry = next((a for a in apps if a["id"] == selected_id), None)
@@ -446,8 +533,7 @@ def _single_label_screen():
                 st.subheader(f"{entry.get('brand_name', '—')} — {entry.get('class_type', '')}")
                 result_for_display = dict(entry["result"])
                 result_for_display["image"] = None
-                _approve_reject = {"entry": entry, "selected_id": selected_id} if view == "under_review" else None
-                _render_single_result(result_for_display, entry.get("image_bytes"), approve_reject=_approve_reject)
+                _render_single_result(result_for_display, entry.get("image_bytes"), approve_reject={"entry": entry, "selected_id": selected_id})
                 if st.button("Back to list", key="back_to_list"):
                     st.session_state["selected_app_id"] = None
                     st.session_state["selected_app_bucket"] = None
@@ -457,15 +543,14 @@ def _single_label_screen():
                 st.session_state["selected_app_bucket"] = None
                 st.rerun()
         else:
-            if view == "under_review":
-                if st.button("Create new application", type="primary", key="btn_add_new"):
-                    st.session_state["adding_new_application"] = True
-                    st.session_state["selected_app_id"] = None
-                    st.session_state["selected_app_bucket"] = None
-                    st.rerun()
-                st.divider()
+            if st.button("New label", type="primary", key="btn_add_new"):
+                st.session_state["app_list_view"] = "create_new"
+                st.session_state["selected_app_id"] = None
+                st.session_state["selected_app_bucket"] = None
+                st.rerun()
+            st.divider()
             if not apps:
-                st.info("No applications here yet." if view == "under_review" else ("No approved applications." if view == "approved" else "No rejected applications."))
+                st.info("No applications under review yet.")
             else:
                 for a in apps:
                     with st.container():
@@ -486,12 +571,12 @@ def _single_label_screen():
                         st.divider()
         return
 
+    # Create new: show result after Check label
     if adding_new and "last_single_result" in st.session_state:
         result = st.session_state["last_single_result"]
         app_data = st.session_state.get("last_single_app_data") or {}
         image_bytes = st.session_state.get("last_single_image_bytes") or b""
         entry_id = st.session_state.get("last_single_entry_id") or str(uuid.uuid4())
-        st.session_state["last_single_entry_id"] = entry_id
         entry = {
             "id": entry_id,
             "brand_name": app_data.get("brand_name", ""),
@@ -501,21 +586,16 @@ def _single_label_screen():
             "image_bytes": image_bytes,
             "result": {k: v for k, v in result.items() if k != "image"},
         }
-        _approve_reject = {"entry": entry, "selected_id": None}
-        _render_single_result(result, image_bytes, approve_reject=_approve_reject)
-        if st.button("Cancel", key="add_cancel"):
-            st.session_state["adding_new_application"] = False
-            st.rerun()
+        _render_single_result(result, image_bytes, approve_reject={"entry": entry, "selected_id": None})
         return
 
-    st.title("TTB Label Verification")
-    st.caption("Select **Applications Under Review** to add or review pending applications, **Approved** or **Rejected** to view resolved applications.")
+    st.title("BottleProof")
+    st.markdown("**Computer Based Alcohol Label Validation**")
+    st.caption("Upload a label and click **Check label**.")
 
 
 def _render_single_result(result: dict, image_bytes: bytes | None, approve_reject: dict | None = None):
-    """
-    approve_reject: when set, show Approve/Reject in upper right. Expects {"entry", "selected_id"}.
-    """
+    """Render label check result: status banner, caption, image, checklist. approve_reject: {"entry", "selected_id"} to show Approve/Decline."""
     overall = result.get("overall_status", "—")
     counts = result.get("counts", {})
 
@@ -526,7 +606,6 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
     }.get(overall, "status-review")
 
     st.markdown(f'<div class="status-banner {css_class}">{overall}</div>', unsafe_allow_html=True)
-    # Caption + Approve/Reject in same row when applicable
     if approve_reject:
         cap_col, btn1_col, btn2_col = st.columns([2, 1, 1])
         with cap_col:
@@ -540,12 +619,36 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
         with btn1_col:
             with st.container(key="approve_btn"):
                 if st.button("Approve", type="primary", key="btn_approve", width="stretch"):
-                    st.session_state["_pending_approve"] = {"action": "approve", "entry": entry, "selected_id": selected_id}
+                    from src.storage import load_applications, save_applications
+                    data = load_applications()
+                    if selected_id:
+                        data["applications_under_review"] = [a for a in data["applications_under_review"] if a.get("id") != selected_id]
+                    data["applications_approved"] = data["applications_approved"] + [entry]
+                    save_applications(data["applications_under_review"], data["applications_approved"], data["applications_rejected"])
+                    for k in ("last_single_result", "last_single_image_bytes", "last_single_app_data", "last_single_entry_id"):
+                        st.session_state.pop(k, None)
+                    d = load_applications()
+                    st.session_state["applications_under_review"] = d["applications_under_review"]
+                    st.session_state["applications_approved"] = d["applications_approved"]
+                    st.session_state["applications_rejected"] = d["applications_rejected"]
+                    st.session_state["app_list_view"] = "create_new"
                     st.rerun()
         with btn2_col:
-            with st.container(key="reject_btn"):
-                if st.button("Reject", key="btn_reject", width="stretch"):
-                    st.session_state["_pending_reject"] = {"action": "reject", "entry": entry, "selected_id": selected_id}
+            with st.container(key="decline_btn"):
+                if st.button("Decline", key="btn_decline", width="stretch"):
+                    from src.storage import load_applications, save_applications
+                    data = load_applications()
+                    if selected_id:
+                        data["applications_under_review"] = [a for a in data["applications_under_review"] if a.get("id") != selected_id]
+                    data["applications_rejected"] = data["applications_rejected"] + [entry]
+                    save_applications(data["applications_under_review"], data["applications_approved"], data["applications_rejected"])
+                    for k in ("last_single_result", "last_single_image_bytes", "last_single_app_data", "last_single_entry_id"):
+                        st.session_state.pop(k, None)
+                    d = load_applications()
+                    st.session_state["applications_under_review"] = d["applications_under_review"]
+                    st.session_state["applications_approved"] = d["applications_approved"]
+                    st.session_state["applications_rejected"] = d["applications_rejected"]
+                    st.session_state["app_list_view"] = "create_new"
                     st.rerun()
     else:
         st.caption(

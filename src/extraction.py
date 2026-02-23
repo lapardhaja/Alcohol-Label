@@ -416,10 +416,13 @@ def extract_fields(ocr_blocks: list[dict[str, Any]]) -> dict[str, Any]:
     if not ocr_blocks:
         return _empty_extracted()
 
-    sorted_blocks = sorted(
-        ocr_blocks,
-        key=lambda b: (b.get("bbox", [0, 0, 0, 0])[1], b.get("bbox", [0])[0]),
-    )
+    def _sort_key(b: dict) -> tuple[float, float]:
+        box = b.get("bbox") or [0, 0, 0, 0]
+        if not isinstance(box, (list, tuple)) or len(box) < 2:
+            return (0.0, 0.0)
+        return (float(box[1]), float(box[0]))
+
+    sorted_blocks = sorted(ocr_blocks, key=_sort_key)
 
     out: dict[str, Any] = {}
 
@@ -447,6 +450,9 @@ def _extract_brand(blocks: list[dict]) -> dict[str, Any]:
             if word in _ALL_COMPANY_SUFFIXES:
                 if word in _BRAND_SUFFIXES:
                     full = (b.get("text") or "").strip()
+                    idx = full.upper().find(word)
+                    if idx >= 0:
+                        full = full[: idx + len(word)].strip()
                     if len(full) >= 3:
                         return {"value": full, "bbox": b.get("bbox")}
                 prefix = text_upper.split(word)[0].strip()

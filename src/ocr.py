@@ -1,5 +1,5 @@
 """
-OCR module: EasyOCR (primary) with Tesseract fallback.
+OCR module: Tesseract only.
 Returns deduplicated text blocks with bbox and confidence.
 """
 from __future__ import annotations
@@ -122,47 +122,7 @@ def _deskew(gray: np.ndarray, max_angle: float = 15.0) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# EasyOCR backend (primary)
-# ---------------------------------------------------------------------------
-
-_easyocr_reader = None
-
-
-def _get_easyocr_reader():
-    global _easyocr_reader
-    if _easyocr_reader is None:
-        import easyocr
-        _easyocr_reader = easyocr.Reader(["en"], gpu=False, verbose=False)
-    return _easyocr_reader
-
-
-def _easyocr_to_blocks(results: list) -> list[dict[str, Any]]:
-    """Convert EasyOCR output [(4-corner-bbox, text, conf), ...] to our block format."""
-    blocks: list[dict[str, Any]] = []
-    for bbox_corners, text, conf in results:
-        text = (text or "").strip()
-        if not text or conf < 0.1:
-            continue
-        xs = [p[0] for p in bbox_corners]
-        ys = [p[1] for p in bbox_corners]
-        blocks.append({
-            "text": text,
-            "bbox": [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
-            "confidence": float(conf) * 100,
-        })
-    return blocks
-
-
-def _run_easyocr(img: Image.Image) -> list[dict[str, Any]]:
-    """Run EasyOCR on resized RGB image."""
-    reader = _get_easyocr_reader()
-    arr = np.array(_resize(img))
-    results = reader.readtext(arr, paragraph=False)
-    return _easyocr_to_blocks(results)
-
-
-# ---------------------------------------------------------------------------
-# Tesseract backend (fallback)
+# Tesseract backend
 # ---------------------------------------------------------------------------
 
 def _data_to_blocks(data: Any) -> list[dict[str, Any]]:
@@ -308,6 +268,14 @@ def _deduplicate_blocks(blocks: list[dict[str, Any]], iou_thresh: float = 0.4) -
     return kept
 
 
+def get_preprocessing_preview(img: Image.Image) -> tuple[Image.Image, Image.Image, Image.Image]:
+    """
+    Return (resized_original, sharpened, binarized) — the same three images
+    that are passed to Tesseract in _run_tesseract_ocr. For debugging/UI preview.
+    """
+    return _preprocess_for_tesseract(img)
+
+
 def _run_tesseract_ocr(img: Image.Image) -> list[dict[str, Any]]:
     """Tesseract multi-pass OCR with improved preprocessing."""
     try:
@@ -343,33 +311,12 @@ def _run_tesseract_ocr(img: Image.Image) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Main entry point: EasyOCR first, Tesseract fallback
+# Main entry point: Tesseract only
 # ---------------------------------------------------------------------------
 
 def run_ocr(img: Image.Image) -> list[dict[str, Any]]:
     """
-    Primary: EasyOCR (CRAFT text detector + deep learning recognizer).
-    Fallback: Tesseract multi-pass with improved preprocessing.
+    Run Tesseract multi-pass OCR with OpenCV preprocessing.
     Returns list of {text, bbox, confidence} blocks.
     """
-    try:
-        blocks = _run_easyocr(img)
-        if blocks:
-            return blocks
-    except Exception as exc:
-        _logger.debug("EasyOCR failed: %s", exc)
-
-    _logger.warning(
-        "EasyOCR unavailable — falling back to Tesseract. "
-        "Results may be less accurate for curved text, stylized fonts, and multi-panel labels."
-    )
-    try:
-        blocks = _run_tesseract_ocr(img)
-    except OcrUnavailableError:
-        raise OcrUnavailableError(
-            "No OCR engine available. Install EasyOCR (pip install easyocr) or "
-            "Tesseract (https://github.com/UB-Mannheim/tesseract/wiki)."
-        )
-    if blocks:
-        blocks[0]["_ocr_fallback"] = True
-    return blocks
+    return _run_tesseract_ocr(img)

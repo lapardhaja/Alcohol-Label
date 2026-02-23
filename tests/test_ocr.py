@@ -1,7 +1,7 @@
 """Tests for OCR module."""
 import pytest
 from PIL import Image
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from src.ocr import (
     run_ocr,
@@ -9,7 +9,6 @@ from src.ocr import (
     _deduplicate_blocks,
     _bbox_iou,
     _data_to_blocks,
-    _easyocr_to_blocks,
     _resize,
     _split_line_by_gaps,
     OcrUnavailableError,
@@ -49,52 +48,6 @@ def test_preprocess_for_tesseract_no_gaussian_blur():
     _, sharpened, _ = _preprocess_for_tesseract(img)
     arr = np.array(sharpened)
     assert arr.shape == (1000, 1500)
-
-
-# ---------------------------------------------------------------------------
-# EasyOCR block conversion
-# ---------------------------------------------------------------------------
-
-def test_easyocr_to_blocks_basic():
-    results = [
-        ([[10, 20], [100, 20], [100, 50], [10, 50]], "HELLO WORLD", 0.95),
-        ([[10, 60], [80, 60], [80, 90], [10, 90]], "TEST", 0.88),
-    ]
-    blocks = _easyocr_to_blocks(results)
-    assert len(blocks) == 2
-    assert blocks[0]["text"] == "HELLO WORLD"
-    assert blocks[0]["bbox"] == [10, 20, 100, 50]
-    assert blocks[0]["confidence"] == pytest.approx(95.0)
-    assert blocks[1]["text"] == "TEST"
-    assert blocks[1]["confidence"] == pytest.approx(88.0)
-
-def test_easyocr_to_blocks_filters_low_confidence():
-    results = [
-        ([[10, 20], [100, 20], [100, 50], [10, 50]], "GOOD", 0.9),
-        ([[10, 60], [80, 60], [80, 90], [10, 90]], "BAD", 0.05),
-    ]
-    blocks = _easyocr_to_blocks(results)
-    assert len(blocks) == 1
-    assert blocks[0]["text"] == "GOOD"
-
-def test_easyocr_to_blocks_filters_empty_text():
-    results = [
-        ([[10, 20], [100, 20], [100, 50], [10, 50]], "", 0.95),
-        ([[10, 60], [80, 60], [80, 90], [10, 90]], "  ", 0.88),
-        ([[10, 100], [80, 100], [80, 130], [10, 130]], "OK", 0.90),
-    ]
-    blocks = _easyocr_to_blocks(results)
-    assert len(blocks) == 1
-    assert blocks[0]["text"] == "OK"
-
-def test_easyocr_to_blocks_rotated_polygon():
-    """Rotated/tilted text should still produce correct axis-aligned bbox."""
-    results = [
-        ([[50, 10], [150, 20], [148, 50], [48, 40]], "TILTED", 0.85),
-    ]
-    blocks = _easyocr_to_blocks(results)
-    assert len(blocks) == 1
-    assert blocks[0]["bbox"] == [48, 10, 150, 50]
 
 
 # ---------------------------------------------------------------------------
@@ -276,36 +229,25 @@ def test_data_to_blocks_fallback_without_hierarchy():
 
 
 # ---------------------------------------------------------------------------
-# run_ocr integration with mocked EasyOCR
+# run_ocr integration (Tesseract only)
 # ---------------------------------------------------------------------------
 
-def test_run_ocr_uses_easyocr_first(white_image):
-    """run_ocr should try EasyOCR first."""
-    mock_reader = MagicMock()
-    mock_reader.readtext.return_value = [
-        ([[10, 10], [100, 10], [100, 40], [10, 40]], "MOCK TEXT", 0.95),
+def test_run_ocr_uses_tesseract(white_image):
+    """run_ocr should call Tesseract and return blocks."""
+    mock_blocks = [
+        {"text": "MOCK TEXT", "bbox": [10, 10, 100, 40], "confidence": 95.0},
     ]
-    with patch("src.ocr._get_easyocr_reader", return_value=mock_reader):
+    with patch("src.ocr._run_tesseract_ocr", return_value=mock_blocks):
         blocks = run_ocr(white_image)
+    assert blocks == mock_blocks
     assert len(blocks) == 1
     assert blocks[0]["text"] == "MOCK TEXT"
-    assert "_ocr_fallback" not in blocks[0]
-
-def test_run_ocr_falls_back_to_tesseract(white_image):
-    """If EasyOCR fails, Tesseract should be used with _ocr_fallback flag."""
-    with patch("src.ocr._get_easyocr_reader", side_effect=Exception("no easyocr")):
-        try:
-            blocks = run_ocr(white_image)
-            if blocks:
-                assert blocks[0].get("_ocr_fallback") is True
-        except OcrUnavailableError:
-            pytest.skip("Tesseract not installed either")
 
 def test_run_ocr_returns_list_of_blocks(white_image):
     try:
         blocks = run_ocr(white_image)
     except OcrUnavailableError:
-        pytest.skip("No OCR engine available")
+        pytest.skip("Tesseract not installed")
     assert isinstance(blocks, list)
     for b in blocks:
         assert "text" in b

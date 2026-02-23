@@ -51,12 +51,11 @@ def run_pipeline(image_input: Any, app_data: dict[str, Any]) -> dict[str, Any]:
             "error": str(e),
         }
 
-    ocr_fallback = any(b.get("_ocr_fallback") for b in ocr_blocks)
     extracted = extract_fields(ocr_blocks)
     rule_results = run_rules(extracted, app_data)
     overall, counts = compute_overall_status(rule_results)
 
-    result: dict[str, Any] = {
+    return {
         "ocr_blocks": ocr_blocks,
         "extracted": extracted,
         "rule_results": rule_results,
@@ -64,9 +63,3 @@ def run_pipeline(image_input: Any, app_data: dict[str, Any]) -> dict[str, Any]:
         "counts": counts,
         "image": img,
     }
-    if ocr_fallback:
-        result["ocr_fallback_warning"] = (
-            "Primary OCR engine (EasyOCR) was unavailable. Using Tesseract fallback "
-            "-- accuracy may be reduced for curved text, stylized fonts, and multi-panel labels."
-        )
-    return result

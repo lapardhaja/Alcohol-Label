@@ -8,6 +8,8 @@ __pycache__/
 .venv
 venv/
 ENV/
+.pytest_cache/
+*.log
 
 # IDE / OS
 .idea/

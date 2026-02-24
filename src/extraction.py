@@ -366,6 +366,13 @@ _CLASS_RE = re.compile(
     + r")",
     re.I,
 )
+# Whole-word match only — avoids "portien" matching "Port", "vistitcen" substring matches
+_CLASS_WORD_RE = re.compile(
+    r"\b(?:"
+    + "|".join(re.escape(k) for k in sorted(_CLASS_KEYWORDS, key=len, reverse=True))
+    + r")\b",
+    re.I,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -649,7 +656,7 @@ def _extract_class_type(blocks: list[dict]) -> dict[str, Any]:
     anchor_idx = None
     for i, b in enumerate(blocks):
         t = b.get("text", "") or ""
-        if not _CLASS_RE.search(t) or _is_stop_content(t):
+        if not _CLASS_WORD_RE.search(t) or _is_stop_content(t):
             continue
         if _ABV_QUAL_RE.search(t):
             continue
@@ -663,7 +670,7 @@ def _extract_class_type(blocks: list[dict]) -> dict[str, Any]:
 
     if anchor_idx is None:
         combined = " ".join(b.get("text", "") for b in blocks)
-        m = _CLASS_RE.search(combined)
+        m = _CLASS_WORD_RE.search(combined)
         if m:
             return {"value": m.group(0).strip(), "bbox": None}
         return {"value": "", "bbox": None}
@@ -699,7 +706,7 @@ def _extract_class_type(blocks: list[dict]) -> dict[str, Any]:
         if _is_stop_content(t):
             break
         upper = t.upper()
-        if _CLASS_RE.search(t) or upper in _CLASS_ADJ:
+        if _CLASS_WORD_RE.search(t) or upper in _CLASS_ADJ:
             collected.insert(0, b)
         else:
             break
@@ -712,7 +719,7 @@ def _extract_class_type(blocks: list[dict]) -> dict[str, Any]:
         if _is_stop_content(t):
             break
         upper = t.upper()
-        if _CLASS_RE.search(t) or upper in _CLASS_ADJ:
+        if _CLASS_WORD_RE.search(t) or upper in _CLASS_ADJ:
             collected.append(b)
         else:
             break

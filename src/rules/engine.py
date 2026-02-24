@@ -247,7 +247,7 @@ def _normalize_numeric_sequences(s: str) -> str:
 
 
 def _is_ocr_confusable(a: str, b: str) -> bool:
-    """Check if two strings differ only by common OCR substitution characters."""
+    """Check if two strings differ only by common OCR substitution characters or high fuzzy similarity (e.g. Wooprorp vs Woodford)."""
     if not a or not b:
         return False
     a_n = _norm(a).lower()
@@ -255,21 +255,32 @@ def _is_ocr_confusable(a: str, b: str) -> bool:
     if a_n == b_n:
         return True
     if len(a_n) != len(b_n) and abs(len(a_n) - len(b_n)) > 2:
-        return False
-    for orig, repl in _OCR_CONFUSABLE_PAIRS:
-        if a_n.replace(orig.lower(), repl.lower()) == b_n:
+        pass  # still allow fuzzy check below
+    else:
+        for orig, repl in _OCR_CONFUSABLE_PAIRS:
+            if a_n.replace(orig.lower(), repl.lower()) == b_n:
+                return True
+            if b_n.replace(orig.lower(), repl.lower()) == a_n:
+                return True
+        diff_count = sum(1 for ca, cb in zip(a_n, b_n) if ca != cb)
+        if diff_count <= 2 and diff_count > 0:
+            for i, (ca, cb) in enumerate(zip(a_n, b_n)):
+                if ca != cb:
+                    if not any((ca == p[0].lower() and cb == p[1].lower()) or
+                               (cb == p[0].lower() and ca == p[1].lower())
+                               for p in _OCR_CONFUSABLE_PAIRS):
+                        return False
             return True
-        if b_n.replace(orig.lower(), repl.lower()) == a_n:
+    try:
+        from rapidfuzz import fuzz
+        ratio = fuzz.ratio(a_n, b_n) / 100.0
+        if ratio >= 0.65 and abs(len(a_n) - len(b_n)) <= 3:
             return True
-    diff_count = sum(1 for ca, cb in zip(a_n, b_n) if ca != cb)
-    if diff_count <= 2 and diff_count > 0:
-        for i, (ca, cb) in enumerate(zip(a_n, b_n)):
-            if ca != cb:
-                if not any((ca == p[0].lower() and cb == p[1].lower()) or
-                           (cb == p[0].lower() and ca == p[1].lower())
-                           for p in _OCR_CONFUSABLE_PAIRS):
-                    return False
-        return True
+    except ImportError:
+        import difflib
+        ratio = difflib.SequenceMatcher(None, a_n, b_n).ratio()
+        if ratio >= 0.65 and abs(len(a_n) - len(b_n)) <= 3:
+            return True
     return False
 
 
@@ -455,12 +466,12 @@ def _rules_alcohol_contents(extracted: dict, app_data: dict, config: dict, bever
             if abs(proof_f - expected_proof) > 1.0:
                 results.append({"rule_id": "Proof/ABV consistency", "category": "Alcohol & contents", "status": "needs_review",
                                 "message": f"Proof ({label_proof}) does not equal 2× ABV ({label_pct}%). Expected proof ≈ {expected_proof:.0f}.",
-                                "bbox_ref": bbox_proof, "extracted_value": f"{label_pct}% / {label_proof} proof",
+                                "bbox_ref": bbox_proof, "extracted_value": label_proof,
                                 "app_value": f"proof = 2 × ABV"})
             else:
                 results.append({"rule_id": "Proof/ABV consistency", "category": "Alcohol & contents", "status": "pass",
                                 "message": "Proof and ABV are consistent (proof = 2 × ABV).",
-                                "bbox_ref": bbox_proof, "extracted_value": f"{label_pct}% / {label_proof} proof",
+                                "bbox_ref": bbox_proof, "extracted_value": label_proof,
                                 "app_value": ""})
 
     if not label_net:
@@ -530,20 +541,56 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     required_full = (warning_cfg.get("full_statement") or "").strip()
     if normalize and required_full:
         required_full = " ".join(required_full.split())
-    # Compare case-insensitively: OCR often returns all caps; required text may be mixed case
-    if required_full and required_full.upper() not in full_text.upper():
-        if len(full_text) < 50:
+
+    # Normalize for comparison: OCR errors + punctuation (OCR often drops commas)
+    def _normalize_warning_ocr(s: str) -> str:
+        s = s.upper()
+        s = re.sub(r"\bOM\s*$", " GENERAL", s)
+        s = re.sub(r"SURGEON\s+OM\b", "SURGEON GENERAL", s, flags=re.I)
+        s = re.sub(r"\bi\)\s*", "(1) ", s)
+        s = re.sub(r"\bl\)\s*", "(2) ", s)
+        s = re.sub(r"\(1\s*\)", "(1)", s)
+        s = re.sub(r"\(2\s*\)", "(2)", s)
+        # Line-break hyphen: "PREG- NANCY" -> "PREGNANCY"
+        s = re.sub(r"PREG-\s*NANCY", "PREGNANCY", s)
+        # OCR artifacts: |) 7] etc
+        s = re.sub(r"\|\s*\)", " ", s)
+        s = re.sub(r"\d+\s*\]", " ", s)
+        s = " ".join(s.split())
+        # Treat "GENERAL, WOMEN" and "GENERAL WOMEN" as same (OCR often drops commas)
+        s = re.sub(r",\s*", " ", s)
+        s = " ".join(s.split())
+        # Strip trailing 1–2 char junk (e.g. "ft")
+        s = re.sub(r"\s+[A-Z]{1,2}\s*$", "", s)
+        return " ".join(s.split())
+
+    full_text_norm = _normalize_warning_ocr(full_text)
+    required_norm = _normalize_warning_ocr(required_full) if required_full else ""
+    full_stripped = full_text_norm.strip()
+    key_phrases = ("SURGEON GENERAL", "ACCORDING TO THE", "GOVERNMENT WARNING", "(1)")
+    has_key_phrases = all(p in full_text_norm for p in key_phrases)
+    # Show normalized text in UI so user sees "Surgeon General" not "Surgeon om"
+    display_extracted = full_text_norm[:80] if full_text_norm else full_text[:80]
+    # Pass if: full required is in label, OR label is correct prefix of required (label has start of warning)
+    required_in_label = required_norm and required_norm in full_text_norm
+    label_is_prefix = required_norm and full_stripped and required_norm.startswith(full_stripped) and len(full_stripped) >= 50
+    if required_full and not required_in_label and not label_is_prefix:
+        if len(full_text_norm) < 50:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "fail",
                             "message": "Warning text appears incomplete or incorrect.", "bbox_ref": bbox_warn,
-                            "extracted_value": full_text[:80], "app_value": required_full[:80]})
+                            "extracted_value": display_extracted, "app_value": required_full[:80]})
+        elif has_key_phrases:
+            results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "needs_review",
+                            "message": "Warning present with key phrases; wording may vary (OCR).", "bbox_ref": bbox_warn,
+                            "extracted_value": display_extracted, "app_value": required_full[:80]})
         else:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "needs_review",
                             "message": "Warning text may not match required wording exactly.", "bbox_ref": bbox_warn,
-                            "extracted_value": full_text[:80], "app_value": required_full[:80]})
+                            "extracted_value": display_extracted, "app_value": required_full[:80]})
     else:
         results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "pass",
                         "message": "Warning statement present and appears complete.", "bbox_ref": bbox_warn,
-                        "extracted_value": full_text[:80], "app_value": required_full[:80] if required_full else "Required statement"})
+                        "extracted_value": display_extracted, "app_value": required_full[:80] if required_full else "Required statement"})
 
     return results
 
@@ -562,9 +609,16 @@ def _rules_origin(extracted: dict, app_data: dict, config: dict) -> list[dict]:
                                 "message": "Bottler name found in label text but not in standard bottler format.", "bbox_ref": bbox_bottler,
                                 "extracted_value": "", "app_value": bottler_app})
             else:
-                results.append({"rule_id": "Bottler/producer statement", "category": "Origin", "status": "fail",
-                                "message": "Bottler/producer name and address not found on label.", "bbox_ref": bbox_bottler,
-                                "extracted_value": "", "app_value": bottler_app})
+                brand_label = _norm(extracted.get("brand_name", {}).get("value", ""))
+                score, _ = _smart_match(bottler_app, brand_label, config)
+                if score >= 0.75:
+                    results.append({"rule_id": "Bottler/producer statement", "category": "Origin", "status": "needs_review",
+                                    "message": "Bottler same as brand (no separate bottler line); verify on label.", "bbox_ref": bbox_bottler,
+                                    "extracted_value": "", "app_value": bottler_app})
+                else:
+                    results.append({"rule_id": "Bottler/producer statement", "category": "Origin", "status": "fail",
+                                    "message": "Bottler/producer name and address not found on label.", "bbox_ref": bbox_bottler,
+                                    "extracted_value": "", "app_value": bottler_app})
         else:
             results.append({"rule_id": "Bottler/producer statement", "category": "Origin", "status": "fail",
                             "message": "Bottler/producer name and address not found on label.", "bbox_ref": bbox_bottler,
@@ -694,11 +748,26 @@ def _rules_other(extracted: dict, app_data: dict, config: dict, beverage_type: s
 
     _age_required = app_data.get("age_statement_required") or ("age_statement" in inferred)
     if _age_required:
-        found = "aged" in blocks_lower or "age" in blocks_lower or bool(re.search(r"\d+\s*years?", blocks_lower))
+        # Word-boundary to avoid false positives (e.g. "cooperage", "percentage")
+        aged_match = re.search(r"\baged\b", blocks_lower)
+        years_match = re.search(r"\d+\s*years?\b", blocks_lower)
+        age_stmt_match = re.search(r"age\s+statement", blocks_lower)
+        found = bool(aged_match or years_match or age_stmt_match)
+        snippet = ""
+        if aged_match:
+            start = max(0, aged_match.start() - 10)
+            snippet = blocks_lower[start : aged_match.end() + 30].strip()
+        elif years_match:
+            start = max(0, years_match.start() - 15)
+            snippet = blocks_lower[start : years_match.end() + 5].strip()
+        elif age_stmt_match:
+            snippet = blocks_lower[age_stmt_match.start() : age_stmt_match.end() + 20].strip()
+        if snippet:
+            snippet = snippet[:50] + ("..." if len(snippet) > 50 else "")
         results.append({"rule_id": "Age statement", "category": "Other",
                         "status": "pass" if found else "fail",
                         "message": "Age statement found." if found else "Age statement required but not found.",
-                        "bbox_ref": None, "extracted_value": "Found" if found else "", "app_value": "Required"})
+                        "bbox_ref": None, "extracted_value": snippet or ("Found" if found else ""), "app_value": "Required"})
 
     _neutral_required = app_data.get("neutral_spirits_required") or ("neutral_spirits" in inferred)
     if _neutral_required and beverage_type in ("spirits", "distilled_spirits"):

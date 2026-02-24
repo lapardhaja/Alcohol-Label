@@ -6,10 +6,24 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .ocr import run_ocr, OcrUnavailableError
 from .extraction import extract_fields
 from .rules.engine import run_rules
 from .scoring import compute_overall_status
+
+
+def _load_warning_reference() -> str:
+    config_path = Path(__file__).resolve().parent.parent / "config" / "rules.yaml"
+    if not config_path.exists():
+        return ""
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+        return (config.get("warning") or {}).get("full_statement") or ""
+    except Exception:
+        return ""
 
 
 def run_pipeline(image_input: Any, app_data: dict[str, Any]) -> dict[str, Any]:
@@ -51,7 +65,8 @@ def run_pipeline(image_input: Any, app_data: dict[str, Any]) -> dict[str, Any]:
             "error": str(e),
         }
 
-    extracted = extract_fields(ocr_blocks)
+    warning_reference = _load_warning_reference()
+    extracted = extract_fields(ocr_blocks, app_data, warning_reference=warning_reference)
     rule_results = run_rules(extracted, app_data)
     overall, counts = compute_overall_status(rule_results)
 

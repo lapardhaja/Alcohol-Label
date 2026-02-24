@@ -2,7 +2,6 @@
 BottleProof — Computer Based Alcohol Label Validation.
 Modes: Single Labeling | Batch Labeling.
 """
-from collections import defaultdict
 import io
 import re
 import sys
@@ -721,12 +720,36 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
 
 
 def _render_validation_matrix(rows: list[dict]) -> None:
-    """Render Criteria × Application × Label × Status table."""
+    """Render Criteria × Application × Label × Status table with color-coded status cells."""
     if not rows:
         st.info("No validation results to display.")
         return
-    df = pd.DataFrame(rows)
-    st.dataframe(df, column_order=["Criteria", "Application", "Label", "Status"], hide_index=True, use_container_width=True)
+    # Status cell colors: Pass=green, Fail=red, Needs review=yellow
+    status_style = {
+        "Pass": "background:#28a745; color:white; font-weight:600;",
+        "Fail": "background:#dc3545; color:white; font-weight:600;",
+        "Needs review": "background:#ffc107; color:#212529; font-weight:600;",
+    }
+
+    def _esc(s: str) -> str:
+        return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+    html = ['<table style="width:100%; border-collapse:collapse; font-size:0.95rem;">']
+    html.append("<thead><tr>")
+    for h in ["Criteria", "Application", "Label", "Status"]:
+        html.append(f'<th style="text-align:left; padding:0.5rem 0.75rem; border-bottom:2px solid #dee2e6;">{_esc(h)}</th>')
+    html.append("</tr></thead><tbody>")
+    for r in rows:
+        html.append("<tr>")
+        html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{_esc(str(r.get("Criteria", "")))}</td>')
+        html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{_esc(str(r.get("Application", "")))}</td>')
+        html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{_esc(str(r.get("Label", "")))}</td>')
+        status = str(r.get("Status", ""))
+        style = status_style.get(status, "")
+        html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6; {style}">{_esc(status)}</td>')
+        html.append("</tr>")
+    html.append("</tbody></table>")
+    st.markdown("".join(html), unsafe_allow_html=True)
 
 
 def _render_single_result(result: dict, image_bytes: bytes | None, approve_reject: dict | None = None, app_data: dict | None = None):
@@ -813,36 +836,7 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
             st.image(image_bytes, width="stretch", caption="Label image")
 
     with col_tabs:
-        tab_check, tab_fields, tab_raw = st.tabs(["Checklist", "Extracted Fields", "Raw OCR"])
-
-        with tab_check:
-            by_category: dict[str, list] = defaultdict(list)
-            for r in result.get("rule_results", []):
-                by_category[r.get("category", "Other")].append(r)
-
-            for cat in ("Identity", "Alcohol & contents", "Warning", "Origin", "Other"):
-                rules = by_category.get(cat, [])
-                if not rules:
-                    continue
-                st.markdown(f"**{cat}**")
-                for i, r in enumerate(rules):
-                    status = r.get("status", "pass")
-                    icon = {"pass": "✅", "needs_review": "⚠️", "fail": "❌"}.get(status, "⚠️")
-
-                    rule_id = r.get("rule_id", "?")
-                    ext_val = r.get("extracted_value", "")
-                    app_val = r.get("app_value", "")
-                    msg = r.get("message", "")
-
-                    if ext_val or app_val:
-                        ext_display = f'"{ext_val}"' if ext_val else "(not found)"
-                        app_display = f'"{app_val}"' if app_val else "(not provided)"
-                        comparison = f'label {ext_display} vs application {app_display}'
-                        st.markdown(f'{icon} **{rule_id}**: {comparison}')
-                        if msg and status != "pass":
-                            st.caption(f"    _{msg}_")
-                    else:
-                        st.markdown(f"{icon} **{rule_id}**: {msg}")
+        tab_fields, tab_raw = st.tabs(["Extracted Fields", "Raw OCR"])
 
         with tab_fields:
             extracted = result.get("extracted", {})

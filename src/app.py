@@ -701,7 +701,7 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
 
     for criteria, rids in [
         ("Alcohol content (ABV)", ["Alcohol content matches", "Alcohol content", "Alcohol content present"]),
-        ("Proof", ["Proof/ABV consistency", "Proof matches", "Proof present", "Proof"]),
+        ("Proof", ["Proof matches", "Proof present", "Proof", "Proof/ABV consistency"]),
         ("Net contents", ["Net contents matches", "Net contents standard of fill", "Net contents", "Net contents present"]),
     ]:
         if criteria == "Proof" and not is_spirits:

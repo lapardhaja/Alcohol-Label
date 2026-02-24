@@ -308,8 +308,8 @@ def _rules_identity(extracted: dict, app_data: dict, config: dict) -> list[dict]
                         "message": "Brand name not found on label.", "bbox_ref": bbox_brand,
                         "extracted_value": "", "app_value": brand_app})
     elif not brand_app:
-        results.append({"rule_id": "Brand name present", "category": "Identity", "status": "pass",
-                        "message": "Brand name found on label (no application value to compare).", "bbox_ref": bbox_brand,
+        results.append({"rule_id": "Brand name present", "category": "Identity", "status": "needs_review",
+                        "message": "Brand name found on label — add to application for verification.", "bbox_ref": bbox_brand,
                         "extracted_value": brand_label, "app_value": ""})
     else:
         score, reason = _smart_match(brand_app, brand_label, config)
@@ -346,8 +346,8 @@ def _rules_identity(extracted: dict, app_data: dict, config: dict) -> list[dict]
                         "message": "Class/type not found on label.", "bbox_ref": bbox_class,
                         "extracted_value": "", "app_value": class_app})
     elif not class_app:
-        results.append({"rule_id": "Class/type present", "category": "Identity", "status": "pass",
-                        "message": "Class/type found on label.", "bbox_ref": bbox_class,
+        results.append({"rule_id": "Class/type present", "category": "Identity", "status": "needs_review",
+                        "message": "Class/type found on label — add to application for verification.", "bbox_ref": bbox_class,
                         "extracted_value": class_label, "app_value": ""})
     else:
         score, reason = _smart_match(class_app, class_label, config)
@@ -424,8 +424,8 @@ def _rules_alcohol_contents(extracted: dict, app_data: dict, config: dict, bever
                             "message": "Alcohol content present.", "bbox_ref": bbox_pct,
                             "extracted_value": label_pct, "app_value": app_pct})
     else:
-        results.append({"rule_id": "Alcohol content", "category": "Alcohol & contents", "status": "pass",
-                        "message": "Alcohol content present and matches.", "bbox_ref": bbox_pct,
+        results.append({"rule_id": "Alcohol content", "category": "Alcohol & contents", "status": "needs_review",
+                        "message": "Alcohol content found on label — add to application for verification.", "bbox_ref": bbox_pct,
                         "extracted_value": label_pct, "app_value": app_pct})
 
     if beverage_type in ("beer", "beer_malt_beverage", "wine"):
@@ -472,12 +472,16 @@ def _rules_alcohol_contents(extracted: dict, app_data: dict, config: dict, bever
                 results.append({"rule_id": "Proof/ABV consistency", "category": "Alcohol & contents", "status": "pass",
                                 "message": "Proof and ABV are consistent (proof = 2 × ABV).",
                                 "bbox_ref": bbox_proof, "extracted_value": label_proof,
-                                "app_value": ""})
+                                "app_value": app_proof})
 
     if not label_net:
         results.append({"rule_id": "Net contents present", "category": "Alcohol & contents", "status": "fail",
                         "message": "Net contents not found on label.", "bbox_ref": bbox_net,
                         "extracted_value": "", "app_value": app_net})
+    elif not app_net:
+        results.append({"rule_id": "Net contents present", "category": "Alcohol & contents", "status": "needs_review",
+                        "message": "Net contents found on label — add to application for verification.", "bbox_ref": bbox_net,
+                        "extracted_value": label_net, "app_value": ""})
     else:
         label_ml = _net_contents_to_ml(label_net)
         app_ml = _net_contents_to_ml(app_net) if app_net else None
@@ -627,8 +631,8 @@ def _rules_origin(extracted: dict, app_data: dict, config: dict) -> list[dict]:
                             "message": "Bottler/producer name and address not found on label.", "bbox_ref": bbox_bottler,
                             "extracted_value": "", "app_value": bottler_app})
     elif not bottler_app:
-        results.append({"rule_id": "Bottler/producer statement", "category": "Origin", "status": "pass",
-                        "message": "Bottler/producer statement found.", "bbox_ref": bbox_bottler,
+        results.append({"rule_id": "Bottler/producer statement", "category": "Origin", "status": "needs_review",
+                        "message": "Bottler/producer found on label — add to application for verification.", "bbox_ref": bbox_bottler,
                         "extracted_value": bottler_label, "app_value": bottler_app})
     else:
         score, reason = _smart_match(bottler_app, bottler_label, config)
@@ -686,6 +690,10 @@ def _rules_origin(extracted: dict, app_data: dict, config: dict) -> list[dict]:
                 results.append({"rule_id": "Country of origin matches", "category": "Origin", "status": "needs_review",
                                 "message": f"Country on label '{co}' may not match application '{co_app}'.", "bbox_ref": bbox_co,
                                 "extracted_value": co, "app_value": co_app})
+        elif not co_app:
+            results.append({"rule_id": "Country of origin", "category": "Origin", "status": "needs_review",
+                            "message": f"Country of origin found on label — add to application for verification.", "bbox_ref": bbox_co,
+                            "extracted_value": co, "app_value": co_app})
         else:
             results.append({"rule_id": "Country of origin", "category": "Origin", "status": "pass",
                             "message": f"Country of origin found: {co}.", "bbox_ref": bbox_co,

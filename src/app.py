@@ -17,7 +17,7 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 _LOGO_PATH = _root / "assets" / "logo.png"
-_BUILD_ID = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M")
+_BUILD_ID = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d-%H%M")
 
 st.set_page_config(
     page_title="BottleProof — Computer Based Alcohol Label Validation",

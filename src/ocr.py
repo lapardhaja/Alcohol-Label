@@ -173,7 +173,8 @@ def _data_to_blocks(data: Any) -> list[dict[str, Any]]:
 def _split_line_by_gaps(data: Any, indices: list[int]) -> list[dict[str, Any]]:
     """
     Split a Tesseract line into multiple blocks when there are large horizontal
-    gaps (> 2x median word spacing) between words -- prevents cross-panel merging.
+    gaps between words — prevents cross-panel merging (e.g. Gov Warning | Serving Facts).
+    Words are sorted by x so gaps are computed left-to-right.
     """
     if len(indices) <= 1:
         words = [data["text"][i].strip() for i in indices]
@@ -183,6 +184,9 @@ def _split_line_by_gaps(data: Any, indices: list[int]) -> list[dict[str, Any]]:
         y2 = y1 + int(data["height"][indices[0]])
         conf = float(data["conf"][indices[0]])
         return [{"text": " ".join(words), "bbox": [x1, y1, x2, y2], "confidence": conf}]
+
+    # Sort by x (left) so gaps are computed in spatial order — Tesseract order can be wrong for columns
+    indices = sorted(indices, key=lambda i: int(data["left"][i]))
 
     word_ends = []
     word_starts = []
@@ -200,10 +204,11 @@ def _split_line_by_gaps(data: Any, indices: list[int]) -> list[dict[str, Any]]:
 
     median_gap = float(np.median(gaps)) if gaps else 0
     gap_threshold = max(median_gap * 2.5, 40)
-
+    # Absolute split: column gap (barcode, margin) — lower = split more aggressively
+    abs_split = 60  # px: split when gap > 60 (was 120; columns can be close)
     split_points = [0]
     for j, gap in enumerate(gaps):
-        if gap > gap_threshold:
+        if gap > gap_threshold or gap > abs_split:
             split_points.append(j + 1)
     split_points.append(len(indices))
 

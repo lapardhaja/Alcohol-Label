@@ -840,6 +840,12 @@ _WARNING_KEYWORDS = frozenset(
      "BEVERAGES", "PREGNANCY", "DEFECTS", "CONSUMPTION", "IMPAIRS", "MACHINERY", "HEALTH", "PROBLEMS"}
 )
 
+# Serving Facts / nutrition panel — exclude from government warning (often side-by-side on label)
+_SERVING_FACTS_MARKERS = (
+    "SERVING SIZE", "SERYING SIZE", "SERVINGS PER", "SERVING FACTS",
+    "AMOUNT PER SERVING", "CALORIES", "CARBOHYDRATE", "FAT", "PROTEIN",
+)
+
 
 def _warning_block_position_in_reference(block_text: str, reference_upper: str) -> int:
     """Earliest index in reference where a significant part of block appears. Lower = earlier in required order."""
@@ -872,6 +878,11 @@ def _reconstruct_warning_from_reference(
         return {"value": "", "bbox": None}
 
     # Collect blocks that look like warning content (contain any keyword)
+    # Exclude pure Serving Facts / nutrition panel (often side-by-side with gov warning)
+    def _is_pure_serving_facts(text: str) -> bool:
+        u = (text or "").upper()
+        return any(m in u for m in _SERVING_FACTS_MARKERS) and not any(kw in u for kw in _WARNING_KEYWORDS)
+
     candidates: list[dict] = []
     for b in blocks:
         t = (b.get("text") or "").strip()
@@ -884,9 +895,10 @@ def _reconstruct_warning_from_reference(
             continue
         if _ABV_QUAL_RE.search(t) and "GOVERNMENT" not in upper:
             continue
+        if _is_pure_serving_facts(t):
+            continue
         if any(kw in upper for kw in _WARNING_KEYWORDS) or "GOVERNMENT" in upper:
             candidates.append(b)
-        # Also include blocks that are class-type but contain warning wording (e.g. ALCOHOLIC BEVERAGES)
         elif _CLASS_RE.search(t) and any(w in upper for w in ("ALCOHOLIC", "BEVERAGES", "HEALTH", "PROBLEMS")):
             candidates.append(b)
 
@@ -922,11 +934,28 @@ def _reconstruct_warning_from_reference(
         if t:
             parts.append(t)
 
-    value = " ".join(parts).strip()
+    value = _sanitize_warning_text(" ".join(parts).strip())
     return {
         "value": value,
         "bbox": _merge_bboxes(ordered) if ordered else None,
     }
+
+
+def _sanitize_warning_text(s: str) -> str:
+    """Remove barcode/OCR artifacts (|, }, —) and Serving Facts fragments that leak from adjacent column."""
+    if not s:
+        return s
+    # Remove Serving Facts fragments: "| Serving Size 12 Fl Oz", "| Protein " (keep "machinery"), etc.
+    s = re.sub(r"\|\s*(?:Serying|Serving)\s+Size\s+[\d.]+\s*(?:Fl\s*Oz|ml)?\s*", " ", s, flags=re.I)
+    s = re.sub(r"\|\s*Protein\s+", " ", s, flags=re.I)  # "| Protein machinery" -> "machinery"
+    s = re.sub(r"\|\s*Calories\s*[\d.]*\s*", " ", s, flags=re.I)
+    s = re.sub(r"\|\s*Carbohydrate\s*[\d.]*g?\s*", " ", s, flags=re.I)
+    s = re.sub(r"\|\s*Fat\s*[\d.]*g?\s*", " ", s, flags=re.I)
+    s = re.sub(r"\|\s*", " ", s)
+    s = re.sub(r"\}\s*", " ", s)
+    s = re.sub(r"[—\-]{3,}", " ", s)  # long dashes
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 
 def _extract_warning(blocks: list[dict], reference_full: str | None = None) -> dict[str, Any]:
@@ -974,6 +1003,8 @@ def _extract_warning(blocks: list[dict], reference_full: str | None = None) -> d
 
         if t in ("Brand Label", "Back Label") or upper.startswith("CONTAINS"):
             break
+        if any(m in upper for m in _SERVING_FACTS_MARKERS):
+            break  # Serving Facts panel (side-by-side with gov warning)
         if _NET_RE.search(t) and "GOVERNMENT" not in upper:
             break
         if _ABV_QUAL_RE.search(t) and "GOVERNMENT" not in upper:
@@ -992,8 +1023,9 @@ def _extract_warning(blocks: list[dict], reference_full: str | None = None) -> d
         last_y = max(last_y, box[3])
 
     parts = [(b.get("text") or "").strip() for b in collected_blocks]
+    value = _sanitize_warning_text(" ".join(parts)) if parts else ""
     return {
-        "value": " ".join(parts) if parts else "",
+        "value": value,
         "bbox": _merge_bboxes(collected_blocks) if collected_blocks else None,
     }
 

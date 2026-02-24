@@ -699,7 +699,9 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
         rule_id = r.get("rule_id", "")
         skip_heuristic = "government warning" in criteria.lower() or "government warning" in rule_id.lower() or rule_id == "Exact warning wording"
         if not skip_heuristic and app_val:
-            if len(ext_val) > len(app_val) and _app_part_in_extracted(app_val, ext_val):
+            # Don't swap when both are numeric (e.g. "5" in "15" would wrongly show app)
+            both_numeric = re.match(r"^\d+(?:\.\d+)?%?\s*$", app_val.strip()) and re.match(r"^\d+(?:\.\d+)?%?\s*$", ext_val.strip())
+            if not both_numeric and len(ext_val) > len(app_val) and _app_part_in_extracted(app_val, ext_val):
                 ext_val = app_val
             elif _extracted_is_generic_only(ext_val) and len(app_val) > len(ext_val):
                 ext_val = app_val
@@ -930,8 +932,6 @@ def _render_comparison_table(extracted: dict, result: dict):
         display_val = val if val else "(not found)"
         if key == "government_warning":
             display_val = _government_warning_display(display_val)
-        if key == "government_warning" and len(display_val) > 80:
-            display_val = display_val[:80] + "..."
         rows.append({"Field": label, "Extracted from label": display_val})
     df = pd.DataFrame(rows)
     st.dataframe(df, width="stretch", hide_index=True)

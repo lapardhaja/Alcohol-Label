@@ -626,8 +626,9 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
         s = re.sub(r"\bl\)\s*", "(2) ", s)
         s = re.sub(r"\(1\s*\)", "(1)", s)
         s = re.sub(r"\(2\s*\)", "(2)", s)
-        # Line-break hyphen: "PREG- NANCY" -> "PREGNANCY"
+        # Line-break hyphens
         s = re.sub(r"PREG-\s*NANCY", "PREGNANCY", s)
+        s = re.sub(r"MACHIN-\s*ERY", "MACHINERY", s, flags=re.I)
         # OCR artifacts: |) 7] etc
         s = re.sub(r"\|\s*\)", " ", s)
         s = re.sub(r"\d+\s*\]", " ", s)
@@ -642,10 +643,14 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     full_text_norm = _normalize_warning_ocr(full_text)
     required_norm = _normalize_warning_ocr(required_full) if required_full else ""
     full_stripped = full_text_norm.strip()
-    key_phrases = ("SURGEON GENERAL", "ACCORDING TO THE", "GOVERNMENT WARNING", "(1)")
-    has_key_phrases = all(p in full_text_norm for p in key_phrases)
-    # Show normalized text in UI so user sees "Surgeon General" not "Surgeon om"
-    display_extracted = full_text_norm[:80] if full_text_norm else full_text[:80]
+    # (1) Surgeon General / pregnancy; (2) consumption impairs / drive / machinery / health
+    key_phrases_1 = ("(1)", "SURGEON GENERAL", "ACCORDING TO THE")
+    key_phrases_2 = ("(2)", "IMPAIRS", "OPERATE MACHINERY", "HEALTH PROBLEMS")
+    has_statement_1 = all(p in full_text_norm for p in key_phrases_1)
+    has_statement_2 = all(p in full_text_norm for p in key_phrases_2)
+    has_both_statements = has_statement_1 and has_statement_2
+    # Show full statement (no truncation) — TTB warning is ~260 chars
+    display_extracted = full_text if full_text else ""
     # Pass if: full required is in label, OR label is correct prefix of required (label has start of warning)
     required_in_label = required_norm and required_norm in full_text_norm
     label_is_prefix = required_norm and full_stripped and required_norm.startswith(full_stripped) and len(full_stripped) >= 50
@@ -654,9 +659,14 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "fail",
                             "message": "Warning text appears incomplete or incorrect.", "bbox_ref": bbox_warn,
                             "extracted_value": display_extracted, "app_value": required_full[:80]})
-        elif has_key_phrases:
+        elif has_both_statements:
+            results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "pass",
+                            "message": "Both (1) and (2) statements present; wording may vary (OCR).", "bbox_ref": bbox_warn,
+                            "extracted_value": display_extracted, "app_value": required_full[:80]})
+        elif has_statement_1 or has_statement_2:
+            missing = "statement (2)" if not has_statement_2 else "statement (1)"
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "needs_review",
-                            "message": "Warning present with key phrases; wording may vary (OCR).", "bbox_ref": bbox_warn,
+                            "message": f"Only one statement found; both (1) and (2) required. Missing: {missing}.", "bbox_ref": bbox_warn,
                             "extracted_value": display_extracted, "app_value": required_full[:80]})
         else:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "needs_review",

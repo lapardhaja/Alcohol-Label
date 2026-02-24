@@ -546,7 +546,10 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     def _normalize_warning_ocr(s: str) -> str:
         s = s.upper()
         s = re.sub(r"\bOM\s*$", " GENERAL", s)
+        # OCR misreads of "GENERAL": om, anal, geral, generai, etc.
         s = re.sub(r"SURGEON\s+OM\b", "SURGEON GENERAL", s, flags=re.I)
+        s = re.sub(r"SURGEON\s+ANAL\b", "SURGEON GENERAL", s, flags=re.I)
+        s = re.sub(r"SURGEON\s+GERAL\b", "SURGEON GENERAL", s, flags=re.I)
         s = re.sub(r"\bi\)\s*", "(1) ", s)
         s = re.sub(r"\bl\)\s*", "(2) ", s)
         s = re.sub(r"\(1\s*\)", "(1)", s)

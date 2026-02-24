@@ -2,7 +2,6 @@
 BottleProof — Computer Based Alcohol Label Validation.
 Modes: Single Labeling | Batch Labeling.
 """
-import base64
 import io
 import re
 import sys
@@ -17,28 +16,6 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 _LOGO_PATH = _root / "assets" / "logo.png"
-
-
-def _safe_image(bytes_or_pil, width: int | None = None, caption: str = "") -> None:
-    """Display image via base64 data URL to avoid MediaFileStorageError when Streamlit's in-memory storage is cleared."""
-    try:
-        if hasattr(bytes_or_pil, "save"):
-            buf = io.BytesIO()
-            bytes_or_pil.save(buf, format="PNG")
-            b = buf.getvalue()
-            fmt = "png"
-        else:
-            b = bytes_or_pil or b""
-            fmt = "jpeg" if len(b) >= 2 and b[:2] == b"\xff\xd8" else "png"
-        if not b:
-            return
-        b64 = base64.b64encode(b).decode("ascii")
-        w = f"width:{width}px;max-width:100%;" if isinstance(width, int) else "max-width:100%; width:100%;"
-        st.markdown(f'<img src="data:image/{fmt};base64,{b64}" style="{w}" alt="" />', unsafe_allow_html=True)
-        if caption:
-            st.caption(caption)
-    except Exception:
-        st.image(bytes_or_pil, width=width, caption=caption)
 
 st.set_page_config(
     page_title="BottleProof — Computer Based Alcohol Label Validation",
@@ -491,7 +468,7 @@ def _single_label_screen():
                 "**To analyze real labels:** Install [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) "
                 "(Windows) or `brew install tesseract` (Mac) / `apt install tesseract-ocr` (Linux), then add to PATH."
             )
-            _safe_image(result.get("image") or upload.getvalue(), caption="Your label image")
+            st.image(result.get("image") or upload.getvalue(), caption="Your label image")
             return
         st.session_state["last_single_result"] = result
         st.session_state["last_single_image_bytes"] = upload.getvalue()
@@ -528,7 +505,7 @@ def _single_label_screen():
                     help="PNG, JPG, JPEG. Photos of labels, scans, or digital artwork.",
                 )
                 if upload is not None:
-                    _safe_image(upload.getvalue(), width=500, caption="Preview")
+                    st.image(upload.getvalue(), width=500, caption="Preview")
 
             st.markdown(
                 """
@@ -642,7 +619,7 @@ def _single_label_screen():
                         with img_col:
                             img_bytes = a.get("image_bytes")
                             if img_bytes:
-                                _safe_image(img_bytes, width=120)
+                                st.image(img_bytes, width=120)
                             else:
                                 st.caption("(no image)")
                         with text_col:
@@ -885,9 +862,9 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
 
     with col_img:
         if img is not None:
-            _safe_image(img, caption="Label image")
+            st.image(img, caption="Label image")
         elif image_bytes:
-            _safe_image(image_bytes, caption="Label image")
+            st.image(image_bytes, caption="Label image")
 
     with col_tabs:
         tab_fields, tab_raw = st.tabs(["Extracted Fields", "Raw OCR"])
@@ -904,11 +881,11 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
                     orig, sharpened, binary = get_preprocessing_preview(img)
                     c1, c2, c3 = st.columns(3)
                     with c1:
-                        _safe_image(orig, caption="1. Resized original (psm 3)")
+                        st.image(orig, caption="1. Resized original (psm 3)")
                     with c2:
-                        _safe_image(sharpened, caption="2. CLAHE + sharpen (psm 6)")
+                        st.image(sharpened, caption="2. CLAHE + sharpen (psm 6)")
                     with c3:
-                        _safe_image(binary, caption="3. Binarized (psm 6)")
+                        st.image(binary, caption="3. Binarized (psm 6)")
             if ocr_blocks:
                 st.caption(f"{len(ocr_blocks)} text blocks detected.")
                 for b in ocr_blocks:

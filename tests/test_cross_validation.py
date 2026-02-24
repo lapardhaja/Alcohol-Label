@@ -148,11 +148,10 @@ class TestBottlerCityState:
 
 
 class TestBoldWarningNote:
-    def test_bold_warning_always_present(self):
-        """The bold warning note should always appear when warning is found."""
+    def test_no_bold_warning_rule(self):
+        """Bold warning rule is not used (OCR cannot verify bold)."""
         extracted = _minimal_extracted()
         app_data = {"beverage_type": "spirits", "brand_name": "TestBrand"}
         results = run_rules(extracted, app_data)
         bold = [r for r in results if "bold" in r["rule_id"].lower()]
-        assert len(bold) == 1
-        assert bold[0]["status"] == "needs_review"
+        assert len(bold) == 0

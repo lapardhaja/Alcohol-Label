@@ -63,7 +63,7 @@ _SHARPEN_KERNEL = np.array([[-1, -1, -1],
                             [-1, -1, -1]], dtype=np.float32)
 
 
-def _resize(img: Image.Image, max_dim: int = 2000, min_dim: int = 1000) -> Image.Image:
+def _resize(img: Image.Image, max_dim: int = 2000, min_dim: int = 1200) -> Image.Image:
     """Resize image: upscale small images so text is readable, cap large ones."""
     w, h = img.size
     if max(w, h) < min_dim:

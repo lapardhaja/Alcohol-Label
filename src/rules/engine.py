@@ -34,6 +34,41 @@ def _norm(s: str) -> str:
     return " ".join((s or "").split()).strip()
 
 
+def _filter_suspicious_from_warning(text: str, suspicious: list[str]) -> str:
+    """Remove suspicious (OCR garbage) tokens from warning text for display."""
+    if not text or not suspicious:
+        return text
+    result = text
+    for tok in suspicious:
+        result = re.sub(rf"\b{re.escape(tok)}\b", "", result, flags=re.I)
+    return " ".join(result.split())
+
+
+def _get_suspicious_warning_tokens(
+    extracted_words: list[str], reference_words: set[str]
+) -> list[str]:
+    """
+    Return tokens in extracted that are not in reference and not valid dictionary words.
+    General rule: extra tokens that aren't real words are likely OCR errors.
+    """
+    try:
+        from spellchecker import SpellChecker
+        spell = SpellChecker()
+        spell.word_frequency.load_words(list(reference_words))
+    except ImportError:
+        return []
+
+    suspicious = []
+    for w in extracted_words:
+        if len(w) < 2 or w.isdigit():
+            continue
+        if w in reference_words:
+            continue
+        if not spell.known([w]):
+            suspicious.append(w)
+    return suspicious
+
+
 def _net_contents_to_ml(s: str) -> int | None:
     """Parse net contents string (metric or imperial) to milliliters."""
     s = _norm(s)
@@ -148,13 +183,13 @@ def _smart_match(app_val: str, label_val: str, config: dict | None = None) -> tu
     generic = set((cfg.get("generic_brand_tokens") or ["brewery", "distillery", "winery", "inc", "co", "company", "llc", "ale", "beer", "spirits", "beverage", "beverages"]))
     if b_set <= a_set:
         if len(b_tokens) < len(a_tokens):
-            return (0.75, "reverse_containment_partial")
+            return (0.88, "reverse_containment_partial")
         if len(b_tokens) == 1 and b_tokens[0] in generic:
             return (0.75, "reverse_containment_generic")
         return (0.90, "reverse_containment")
     if b_set_ocr and a_set_ocr and b_set_ocr <= a_set_ocr:
         if len(b_tokens) < len(a_tokens):
-            return (0.75, "reverse_containment_partial_ocr")
+            return (0.88, "reverse_containment_partial_ocr")
         if len(b_tokens) == 1 and b_tokens[0] in generic:
             return (0.75, "reverse_containment_generic_ocr")
         return (0.90, "reverse_containment_ocr_normalized")
@@ -431,9 +466,9 @@ def _rules_identity(extracted: dict, app_data: dict, config: dict) -> list[dict]
                                 "extracted_value": class_label, "app_value": class_app})
         else:
             if class_app and _app_tokens_in_full_text(class_app, all_text):
-                results.append({"rule_id": "Class/type matches", "category": "Identity", "status": "pass",
-                                "message": "Class/type found on label (tokens in full text).", "bbox_ref": bbox_class,
-                                "extracted_value": class_label, "app_value": class_app, "prefer_app_display": True})
+                results.append({"rule_id": "Class/type matches", "category": "Identity", "status": "needs_review",
+                                "message": f"Application class '{class_app}' found on label but extracted class is '{class_label}' — verify.", "bbox_ref": bbox_class,
+                                "extracted_value": class_label, "app_value": class_app})
             elif _is_ocr_confusable(class_app, class_label):
                 results.append({"rule_id": "Class/type matches", "category": "Identity", "status": "needs_review",
                                 "message": f"Class/type differs — likely OCR misread, verify manually ({score:.0%}).", "bbox_ref": bbox_class,
@@ -597,19 +632,6 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
                         "message": "GOVERNMENT WARNING appears in required form.", "bbox_ref": bbox_warn,
                         "extracted_value": "GOVERNMENT WARNING", "app_value": "GOVERNMENT WARNING"})
 
-    # Bold: OCR cannot detect bold; treat all-caps "GOVERNMENT WARNING" as satisfying emphasis requirement.
-    idx = full_text.upper().find("GOVERNMENT WARNING")
-    lead = full_text[idx : idx + 22].strip() if idx >= 0 else ""
-    all_caps_lead = lead.isupper() and "GOVERNMENT WARNING" in lead.upper()
-    if all_caps_lead:
-        results.append({"rule_id": "GOVERNMENT WARNING bold", "category": "Warning", "status": "pass",
-                        "message": "GOVERNMENT WARNING appears in all caps (emphasis requirement; bold cannot be verified by OCR).",
-                        "bbox_ref": bbox_warn, "extracted_value": "GOVERNMENT WARNING", "app_value": "Bold required"})
-    else:
-        results.append({"rule_id": "GOVERNMENT WARNING bold", "category": "Warning", "status": "needs_review",
-                        "message": "TTB requires 'GOVERNMENT WARNING:' in bold — cannot verify via OCR, manual check needed.",
-                        "bbox_ref": bbox_warn, "extracted_value": full_text[:30] if full_text else "", "app_value": "Bold required"})
-
     required_full = (warning_cfg.get("full_statement") or "").strip()
     if normalize and required_full:
         required_full = " ".join(required_full.split())
@@ -695,7 +717,8 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
         and re.search(r"\bG(?:eneral|ENERAL)\b", full_text)
     )
 
-    display_extracted = full_text if full_text else ""
+    suspicious = _get_suspicious_warning_tokens(extra_unique, set(req_words))
+    display_extracted = _filter_suspicious_from_warning(full_text or "", suspicious) or full_text or ""
     required_in_label = required_norm and required_norm in full_text_norm
     label_is_prefix = required_norm and full_stripped and required_norm.startswith(full_stripped) and len(full_stripped) >= 50
     if required_full and not required_in_label and not label_is_prefix:
@@ -713,6 +736,8 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
                 reasons.append("missing required words")
             if not no_extra:
                 reasons.append(f"extra words: {extra_unique[:5]}")
+            if suspicious:
+                reasons.append(f"suspicious tokens (likely OCR errors): {', '.join(suspicious[:5])}")
             if not phrases_in_order:
                 reasons.append("critical phrases (BIRTH DEFECTS, HEALTH PROBLEMS) out of order or too far apart")
             if not has_surgeon_general_caps:
@@ -726,8 +751,11 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
                             "message": f"Only one statement found; both (1) and (2) required. Missing: {missing}.", "bbox_ref": bbox_warn,
                             "extracted_value": display_extracted, "app_value": required_full})
         else:
+            msg = "Warning text may not match required wording exactly."
+            if suspicious:
+                msg += f" Suspicious tokens (likely OCR errors): {', '.join(suspicious[:5])}."
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "needs_review",
-                            "message": "Warning text may not match required wording exactly.", "bbox_ref": bbox_warn,
+                            "message": msg, "bbox_ref": bbox_warn,
                             "extracted_value": display_extracted, "app_value": required_full})
     else:
         results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "pass",

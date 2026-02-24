@@ -8,7 +8,7 @@ _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-from src.rules.engine import _is_ocr_confusable, run_rules
+from src.rules.engine import _is_ocr_confusable, _net_contents_to_ml, run_rules
 
 
 class TestOCRConfusable:
@@ -82,3 +82,33 @@ class TestOCRConfusableInRules:
         results = run_rules(extracted, app_data)
         abv = [r for r in results if "alcohol content" in r["rule_id"].lower()]
         assert len(abv) >= 1
+
+    def test_proof_ocr_normalized_passes(self):
+        """Proof '8O' vs app '80' should pass via OCR normalization."""
+        extracted = {
+            "brand_name": {"value": "TestBrand", "bbox": [0, 0, 100, 20]},
+            "class_type": {"value": "Vodka", "bbox": [0, 25, 80, 45]},
+            "alcohol_pct": {"value": "40", "bbox": [0, 50, 60, 65]},
+            "proof": {"value": "8O", "bbox": [0, 60, 40, 75]},
+            "net_contents": {"value": "750 mL", "bbox": [0, 70, 80, 85]},
+            "government_warning": {"value": "GOVERNMENT WARNING: (1) test", "bbox": [0, 90, 200, 120]},
+            "bottler": {"value": "Bottled by TestCo", "bbox": [0, 130, 150, 150]},
+            "country_of_origin": {"value": "", "bbox": None},
+            "_all_blocks": [{"text": "TestBrand Vodka 40% 8O Proof"}],
+        }
+        app_data = {"beverage_type": "spirits", "brand_name": "TestBrand", "proof": "80"}
+        results = run_rules(extracted, app_data)
+        proof_rules = [r for r in results if "proof" in r["rule_id"].lower() and "consistency" not in r["rule_id"].lower()]
+        assert any(r["status"] == "pass" for r in proof_rules)
+
+    def test_net_contents_ocr_normalized_parses(self):
+        """Net contents '75O mL' should parse as 750 mL."""
+        assert _net_contents_to_ml("75O mL") == 750
+        assert _net_contents_to_ml("7S0 mL") == 750
+
+    def test_smart_match_ocr_normalized_exact(self):
+        """Brand 'Bacard1' vs 'Bacardi' should match via OCR normalization."""
+        from src.rules.engine import _smart_match
+        score, reason = _smart_match("Bacardi", "Bacard1")
+        assert score == 1.0
+        assert "exact" in reason or "ocr" in reason.lower()

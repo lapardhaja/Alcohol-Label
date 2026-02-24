@@ -39,6 +39,8 @@ def _net_contents_to_ml(s: str) -> int | None:
     s = _norm(s)
     if not s:
         return None
+    # Pre-normalize OCR confusables only in numeric parts (e.g. "75O mL" -> "750 mL", preserves "fl" in "fl oz")
+    s = _normalize_numeric_sequences(s)
     m = re.match(r"^(\d+(?:\.\d+)?)\s*(mL|ml|ML|L|l)\s*$", s, re.I)
     if m:
         val = float(m.group(1))
@@ -114,9 +116,13 @@ def _smart_match(app_val: str, label_val: str, config: dict | None = None) -> tu
     if not a_norm or not b_norm:
         return (0.0, "empty")
 
-    # 1. Exact match
+    # 1. Exact match (including OCR-normalized: "T0m" vs "Tom", "Bacard1" vs "Bacardi")
     if a_norm == b_norm:
         return (1.0, "exact")
+    a_ocr = _normalize_ocr_for_text(app_val)
+    b_ocr = _normalize_ocr_for_text(label_val)
+    if a_ocr and b_ocr and a_ocr == b_ocr:
+        return (1.0, "exact_ocr_normalized")
 
     a_tokens = _tokenize(app_val)
     b_tokens = _tokenize(label_val)
@@ -131,9 +137,17 @@ def _smart_match(app_val: str, label_val: str, config: dict | None = None) -> tu
     if a_set <= b_set:
         return (0.95, "token_containment")
 
+    # 2b. OCR-normalized token containment (handles "T0m" in label vs "Tom" in app)
+    a_set_ocr = {_normalize_ocr_for_text(t) for t in a_tokens}
+    b_set_ocr = {_normalize_ocr_for_text(t) for t in b_tokens}
+    if a_set_ocr and b_set_ocr and a_set_ocr <= b_set_ocr:
+        return (0.95, "token_containment_ocr_normalized")
+
     # 3. Reverse containment: every label token appears in app tokens
     if b_set <= a_set:
         return (0.90, "reverse_containment")
+    if b_set_ocr and a_set_ocr and b_set_ocr <= a_set_ocr:
+        return (0.90, "reverse_containment_ocr_normalized")
 
     # 4. Substring containment
     if a_norm in b_norm or b_norm in a_norm:
@@ -174,7 +188,7 @@ def _tokens_found_in_text(app_val: str, full_text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# OCR confusable detection
+# OCR confusable detection and normalization
 # ---------------------------------------------------------------------------
 
 _OCR_CONFUSABLE_PAIRS: list[tuple[str, str]] = [
@@ -191,6 +205,45 @@ _OCR_CONFUSABLE_PAIRS: list[tuple[str, str]] = [
     ('"', '"'), ('"', '"'),
     ("c", "e"), ("e", "c"),
 ]
+
+# Canonical mappings for proactive normalization (avoids I/1, O/0 confusion in matching)
+# Text context: digits that look like letters → letters (so "Bacard1" matches "Bacardi")
+_OCR_TEXT_NORMALIZE: dict[str, str] = {
+    "1": "i", "0": "o", "5": "s", "8": "b",
+}
+# Numeric context: letters that look like digits → digits (so "75O mL" parses as 750)
+_OCR_NUMERIC_NORMALIZE: dict[str, str] = {
+    "O": "0", "o": "0", "I": "1", "l": "1", "S": "5", "B": "8",
+}
+
+
+def _normalize_ocr_for_text(s: str) -> str:
+    """Normalize OCR confusables for text matching. Maps digit-like chars to letters."""
+    s = _norm(s).lower()
+    for char, canonical in _OCR_TEXT_NORMALIZE.items():
+        s = s.replace(char, canonical)
+    return s
+
+
+def _normalize_ocr_for_numeric(s: str) -> str:
+    """Normalize OCR confusables in numeric strings. Maps letter-like chars to digits."""
+    s = _norm(s)
+    for char, canonical in _OCR_NUMERIC_NORMALIZE.items():
+        s = s.replace(char, canonical)
+    return s
+
+
+def _normalize_numeric_sequences(s: str) -> str:
+    """Normalize OCR confusables only within digit sequences (e.g. '75O mL' -> '750 mL').
+    Avoids corrupting units like 'fl' in '12 fl oz' (l only normalized when adjacent to digits)."""
+    def _replace_in_number(match: re.Match) -> str:
+        part = match.group(0)
+        for char, canonical in _OCR_NUMERIC_NORMALIZE.items():
+            part = part.replace(char, canonical)
+        return part
+
+    # Match sequences that contain at least one digit (avoids matching standalone 'l' in 'fl oz')
+    return re.sub(r"\d[\dOolISB8.]*", _replace_in_number, s)
 
 
 def _is_ocr_confusable(a: str, b: str) -> bool:
@@ -343,7 +396,7 @@ def _rules_alcohol_contents(extracted: dict, app_data: dict, config: dict, bever
         label_f = _parse_abv_float(label_pct)
         app_f = _parse_abv_float(app_pct)
         if label_f is not None and app_f is not None and abs(label_f - app_f) <= 0.15:
-            results.append({"rule_id": "Alcohol content", "category": "Alcohol & contents", "status": "pass",
+            results.append({"rule_id": "Alcohol content matches", "category": "Alcohol & contents", "status": "pass",
                             "message": "Alcohol content present and matches.", "bbox_ref": bbox_pct,
                             "extracted_value": label_pct, "app_value": app_pct})
         elif label_f is not None and app_f is not None:
@@ -373,9 +426,21 @@ def _rules_alcohol_contents(extracted: dict, app_data: dict, config: dict, bever
                         "message": "Proof not found on label but specified in application.", "bbox_ref": bbox_proof,
                         "extracted_value": "", "app_value": app_proof})
     elif app_proof and label_proof != app_proof:
-        results.append({"rule_id": "Proof matches", "category": "Alcohol & contents", "status": "needs_review",
-                        "message": f"Proof on label ({label_proof}) does not match application ({app_proof}).", "bbox_ref": bbox_proof,
-                        "extracted_value": label_proof, "app_value": app_proof})
+        # Check OCR confusables (e.g. "8O" vs "80", "9O" vs "90")
+        label_proof_norm = _normalize_ocr_for_numeric(label_proof)
+        app_proof_norm = _normalize_ocr_for_numeric(app_proof)
+        if label_proof_norm == app_proof_norm:
+            results.append({"rule_id": "Proof matches", "category": "Alcohol & contents", "status": "pass",
+                            "message": f"Proof matches after OCR normalization ({label_proof} ≈ {app_proof}).", "bbox_ref": bbox_proof,
+                            "extracted_value": label_proof, "app_value": app_proof})
+        elif _is_ocr_confusable(label_proof, app_proof):
+            results.append({"rule_id": "Proof matches", "category": "Alcohol & contents", "status": "needs_review",
+                            "message": f"Proof on label ({label_proof}) differs from application ({app_proof}) — likely OCR misread, verify manually.", "bbox_ref": bbox_proof,
+                            "extracted_value": label_proof, "app_value": app_proof})
+        else:
+            results.append({"rule_id": "Proof matches", "category": "Alcohol & contents", "status": "needs_review",
+                            "message": f"Proof on label ({label_proof}) does not match application ({app_proof}).", "bbox_ref": bbox_proof,
+                            "extracted_value": label_proof, "app_value": app_proof})
     else:
         results.append({"rule_id": "Proof", "category": "Alcohol & contents", "status": "pass",
                         "message": "Proof present and matches.", "bbox_ref": bbox_proof,
@@ -413,8 +478,9 @@ def _rules_alcohol_contents(extracted: dict, app_data: dict, config: dict, bever
                             "message": f"Net contents '{label_net}' is not a TTB authorized standard of fill.", "bbox_ref": bbox_net,
                             "extracted_value": label_net, "app_value": app_net})
         if app_ml is not None and label_ml is not None and abs(app_ml - label_ml) > 5:
+            ocr_hint = " — likely OCR misread, verify manually" if _is_ocr_confusable(label_net, app_net) else ""
             results.append({"rule_id": "Net contents matches", "category": "Alcohol & contents", "status": "needs_review",
-                            "message": f"Net contents on label ({label_net} ≈ {label_ml} mL) does not match application ({app_net} ≈ {app_ml} mL).", "bbox_ref": bbox_net,
+                            "message": f"Net contents on label ({label_net} ≈ {label_ml} mL) does not match application ({app_net} ≈ {app_ml} mL){ocr_hint}.", "bbox_ref": bbox_net,
                             "extracted_value": label_net, "app_value": app_net})
         if not any(r.get("rule_id") in ("Net contents standard of fill", "Net contents matches") for r in results):
             results.append({"rule_id": "Net contents", "category": "Alcohol & contents", "status": "pass",
@@ -550,9 +616,18 @@ def _rules_origin(extracted: dict, app_data: dict, config: dict) -> list[dict]:
                             "message": "Imported product must show country of origin.", "bbox_ref": bbox_co,
                             "extracted_value": "", "app_value": co_app})
         elif co_app and co_app.lower() not in co.lower() and co.lower() not in co_app.lower():
-            results.append({"rule_id": "Country of origin matches", "category": "Origin", "status": "needs_review",
-                            "message": f"Country on label '{co}' may not match application '{co_app}'.", "bbox_ref": bbox_co,
-                            "extracted_value": co, "app_value": co_app})
+            if _is_ocr_confusable(co, co_app):
+                results.append({"rule_id": "Country of origin matches", "category": "Origin", "status": "needs_review",
+                                "message": f"Country on label '{co}' differs from application '{co_app}' — likely OCR misread, verify manually.", "bbox_ref": bbox_co,
+                                "extracted_value": co, "app_value": co_app})
+            elif _normalize_ocr_for_text(co) == _normalize_ocr_for_text(co_app):
+                results.append({"rule_id": "Country of origin", "category": "Origin", "status": "pass",
+                                "message": f"Country of origin matches after OCR normalization: {co}.", "bbox_ref": bbox_co,
+                                "extracted_value": co, "app_value": co_app})
+            else:
+                results.append({"rule_id": "Country of origin matches", "category": "Origin", "status": "needs_review",
+                                "message": f"Country on label '{co}' may not match application '{co_app}'.", "bbox_ref": bbox_co,
+                                "extracted_value": co, "app_value": co_app})
         else:
             results.append({"rule_id": "Country of origin", "category": "Origin", "status": "pass",
                             "message": f"Country of origin found: {co}.", "bbox_ref": bbox_co,

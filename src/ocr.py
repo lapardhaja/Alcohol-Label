@@ -293,7 +293,7 @@ def _run_tesseract_ocr(img: Image.Image) -> list[dict[str, Any]]:
     def _run_pass(image: Image.Image | np.ndarray, psm: int) -> list[dict[str, Any]]:
         arr = np.array(image) if isinstance(image, Image.Image) else image
         try:
-            data = pytesseract.image_to_data(arr, output_type=Output.DICT, config=f"--psm {psm}", lang="eng")
+            data = pytesseract.image_to_data(arr, output_type=Output.DICT, config=f"--psm {psm}")
             return _data_to_blocks(data)
         except pytesseract.TesseractNotFoundError:
             raise OcrUnavailableError(

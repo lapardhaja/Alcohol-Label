@@ -335,37 +335,3 @@ def run_ocr(img: Image.Image) -> list[dict[str, Any]]:
     Returns list of {text, bbox, confidence} blocks.
     """
     return _run_tesseract_ocr(img)
-
-
-def run_ocr_debug(img: Image.Image):
-    """
-    Debug: returns (deduplicated_blocks, [(pass_name, blocks), ...]).
-    Use to inspect raw OCR outputs before dedup and trace combination issues.
-    """
-    try:
-        import pytesseract
-        from pytesseract import Output
-    except ImportError:
-        raise OcrUnavailableError("pytesseract not installed")
-
-    _ensure_tesseract_cmd()
-    original, sharpened, binary = _preprocess_for_tesseract(img)
-
-    def _run_pass(image: Image.Image | np.ndarray, psm: int) -> list[dict[str, Any]]:
-        arr = np.array(image) if isinstance(image, Image.Image) else image
-        try:
-            data = pytesseract.image_to_data(arr, output_type=Output.DICT, config=f"--psm {psm}")
-            return _data_to_blocks(data)
-        except Exception:
-            return []
-
-    by_pass: list[tuple[str, list[dict[str, Any]]]] = [
-        ("original_psm3", _run_pass(original, 3)),
-        ("sharpened_psm6", _run_pass(sharpened, 6)),
-        ("binary_psm6", _run_pass(binary, 6)),
-    ]
-    all_blocks = []
-    for _, blks in by_pass:
-        all_blocks.extend(blks)
-    deduped = _deduplicate_blocks(all_blocks)
-    return deduped, by_pass

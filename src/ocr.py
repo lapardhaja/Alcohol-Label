@@ -76,11 +76,9 @@ def _resize(img: Image.Image, max_dim: int = 2000, min_dim: int = 1200) -> Image
 
 
 def _binarize(gray: np.ndarray) -> np.ndarray:
-    """Adaptive thresholding for clean black-on-white text."""
-    return cv2.adaptiveThreshold(
-        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY, 31, 10,
-    )
+    """Otsu's method: global threshold from histogram (best for bimodal, even lighting)."""
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return binary
 
 
 def _preprocess_for_tesseract(img: Image.Image) -> tuple[Image.Image, Image.Image, Image.Image]:

@@ -34,6 +34,29 @@ def _norm(s: str) -> str:
     return " ".join((s or "").split()).strip()
 
 
+def _apply_spell_correction_to_warning(text: str, reference_words: set[str]) -> str:
+    """Correct unknown words in warning text using spell checker (fixes OCR errors like 'cig' -> 'cause')."""
+    try:
+        from spellchecker import SpellChecker
+        spell = SpellChecker()
+        spell.word_frequency.load_words(list(reference_words))
+    except ImportError:
+        return text
+
+    words = re.findall(r"\b\w+\b|\W+", text)
+    corrected = []
+    for w in words:
+        if not re.match(r"\w+", w):
+            corrected.append(w)
+            continue
+        if w in reference_words or spell.known([w]):
+            corrected.append(w)
+            continue
+        fix = spell.correction(w)
+        corrected.append(fix if fix else w)
+    return "".join(corrected)
+
+
 def _filter_suspicious_from_warning(text: str, suspicious: list[str]) -> str:
     """Remove suspicious (OCR garbage) tokens from warning text for display."""
     if not text or not suspicious:
@@ -47,10 +70,7 @@ def _filter_suspicious_from_warning(text: str, suspicious: list[str]) -> str:
 def _get_suspicious_warning_tokens(
     extracted_words: list[str], reference_words: set[str]
 ) -> list[str]:
-    """
-    Return tokens in extracted that are not in reference and not valid dictionary words.
-    General rule: extra tokens that aren't real words are likely OCR errors.
-    """
+    """Return tokens in extracted that are not in reference and not valid dictionary words."""
     try:
         from spellchecker import SpellChecker
         spell = SpellChecker()
@@ -718,7 +738,9 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     )
 
     suspicious = _get_suspicious_warning_tokens(extra_unique, set(req_words))
-    display_extracted = _filter_suspicious_from_warning(full_text or "", suspicious) or full_text or ""
+    ref_words = set(req_words)
+    filtered_text = _filter_suspicious_from_warning(full_text or "", suspicious) or full_text or ""
+    display_extracted = _apply_spell_correction_to_warning(filtered_text, ref_words) or filtered_text
     required_in_label = required_norm and required_norm in full_text_norm
     label_is_prefix = required_norm and full_stripped and required_norm.startswith(full_stripped) and len(full_stripped) >= 50
     if required_full and not required_in_label and not label_is_prefix:

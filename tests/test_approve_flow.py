@@ -1,4 +1,4 @@
-﻿"""
+"""
 Playwright E2E test for the approve flow in Alcohol Label app.
 Run from project root after: streamlit run app.py --server.headless true --server.port 8501
 """
@@ -46,7 +46,7 @@ def main():
             report.append("   OK: Create new clicked")
 
             report.append("3. Uploading test image...")
-            test_image = _root / "Test Images" / "test_1.jpg"
+            test_image = _root / "sample_data" / "test_1.jpg"
             if test_image.exists():
                 file_input = page.locator('input[type="file"]').first
                 file_input.set_input_files(str(test_image))

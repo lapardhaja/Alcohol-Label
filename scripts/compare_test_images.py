@@ -144,10 +144,8 @@ def _get_extracted_value(extracted: dict, key: str) -> str:
 def main():
     from src.pipeline import run_pipeline
 
-    test_dir = Path(r"C:\Users\Servet\Downloads\Test_images")
+    test_dir = _root / "sample_data"
     if not test_dir.exists():
-        print(f"Test image directory not found: {test_dir}")
-        print("Using project assets or current dir for demo.")
         test_dir = _root / "assets"
     if not test_dir.exists():
         test_dir = _root

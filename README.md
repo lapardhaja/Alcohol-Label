@@ -40,7 +40,7 @@ Streamlit prototype for TTB label compliance agents: verify distilled spirits la
 - **Single label**: Upload an image, fill application fields (brand, class/type, ABV, proof, net contents, bottler, etc.), click **Check label**. View overall status, checklist by category, and use **Show on label** to highlight the region used for each rule.
 - **Batch review**: Upload a **ZIP** of label images and a **CSV** with one row per label. CSV must include `label_id` (matching filename without extension, e.g. `label_001.png` → `label_001`) and application columns. Click **Run batch checks**, then filter by status and use **View detail** to open the full checklist for a label.
 
-Example CSV columns: `label_id`, `brand_name`, `class_type`, `alcohol_pct`, `proof`, `net_contents_ml`, `bottler_name`, `bottler_city`, `bottler_state`, `imported`, `country_of_origin`, and optional flags (`sulfites_required`, `fd_c_yellow_5_required`, etc.). See `sample_data/batch_example.csv`.
+Example CSV columns: `label_id`, `brand_name`, `class_type`, `alcohol_pct`, `proof`, `net_contents_ml`, `bottler_name`, `bottler_city`, `bottler_state`, `imported`, `country_of_origin`, and optional flags (`sulfites_required`, `fd_c_yellow_5_required`, etc.). See `sample_data/batch_example.csv`. Sample images are in `sample_data/` (test_1.jpg through test_7) and `sample_data/test_images.zip`.
 
 ## Approach, tools, assumptions
 

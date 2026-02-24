@@ -18,7 +18,7 @@ Streamlit prototype for TTB label compliance agents: verify distilled spirits la
    - **macOS:** `brew install tesseract`
    - **Linux:** `sudo apt install tesseract-ocr` (or equivalent)
 
-   The app looks for Tesseract in standard install locations first, so adding it to PATH is only needed if you installed to a custom location.
+   The app looks for Tesseract in standard install locations first, so adding it to PATH is only needed if you installed to a custom location. Use the [latest Tesseract](https://github.com/UB-Mannheim/tesseract/wiki) for best OCR quality.
 
 3. **Install dependencies**:
 
@@ -50,10 +50,9 @@ Example CSV columns: `label_id`, `brand_name`, `class_type`, `alcohol_pct`, `pro
 - **Assumptions**: Standard of fill is a fixed list in config; "emphasized" warning is implemented as "GOVERNMENT WARNING" in caps in a distinct block; no DB—results in session only; batch runs sequentially.
 - **Trade-offs**: If Tesseract is unavailable, the app shows a clear error and install instructions (no fake results); prototype does not persist results or integrate with COLA.
 
-## Deploy (e.g. Streamlit Community Cloud)
+## Deploy
 
-- Add a `packages.txt` with `tesseract-ocr` if the platform supports it, or document that OCR may be mock unless Tesseract is installed.
-- Run from repo root with `streamlit run src/app.py` and set working directory to the project root.
+**Streamlit Community Cloud (Tesseract 5.3):** Uses `sources.list` + `packages.txt` to pull Tesseract 5.3 from Debian 12 (bookworm). Undocumented feature — see [Debian 11 EOL thread](https://discuss.streamlit.io/t/debian-11-eol/80690). Run `streamlit run app.py` from repo root.
 
 ## License
 

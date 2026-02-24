@@ -263,8 +263,8 @@ def _single_label_screen():
             if view_key == "create_new":
                 _form_fill = _get_form_fill_from_session()
                 ss = st.session_state
+                _bool_keys = ("create_imported", "create_sulfites", "create_fd_c_yellow_5", "create_carmine", "create_wood_treatment", "create_age_statement", "create_neutral_spirits", "create_aspartame", "create_appellation_required", "create_varietal_required")
                 if _form_fill:
-                    # Pre-fill Application details from preset when keys are missing (e.g. after preset change)
                     ss.setdefault("create_beverage_type", _form_fill.get("beverage_type") or _BEVERAGE_TYPES[0])
                     ss.setdefault("create_brand_name", _form_fill.get("brand_name") or "")
                     ss.setdefault("create_class_type", _form_fill.get("class_type") or "")
@@ -276,44 +276,47 @@ def _single_label_screen():
                     ss.setdefault("create_bottler_state", _form_fill.get("bottler_state") or "")
                     ss.setdefault("create_imported", _form_fill.get("imported", False))
                     ss.setdefault("create_country_of_origin", _form_fill.get("country_of_origin") or "")
+                    for _k in _bool_keys:
+                        ss.setdefault(_k, False)
                     if ss.get("preset_just_changed"):
                         ss["create_details_last_saved"] = {k: ss.get(k) for k in _create_keys}
                         ss["preset_just_changed"] = False
-
-                def _dv(key: str, default: str = "") -> str:
-                    v = _form_fill.get(key, default) if _form_fill else default
-                    return str(v) if v is not None else default
+                else:
+                    ss.setdefault("create_beverage_type", _BEVERAGE_TYPES[0])
+                    for _k in _create_keys:
+                        if _k == "create_beverage_type":
+                            continue
+                        ss.setdefault(_k, False if _k in _bool_keys else "")
 
                 def _bev_idx() -> int:
-                    if _form_fill and _form_fill.get("beverage_type") in _BEVERAGE_TYPES:
-                        return _BEVERAGE_TYPES.index(_form_fill["beverage_type"])
-                    return 0
+                    _bev = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
+                    return _BEVERAGE_TYPES.index(_bev) if _bev in _BEVERAGE_TYPES else 0
 
                 with st.expander("Application details", expanded=True):
                     _bev = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
                     _bev_idx_val = _BEVERAGE_TYPES.index(_bev) if _bev in _BEVERAGE_TYPES else 0
                     st.selectbox("Beverage type", _BEVERAGE_TYPES, index=_bev_idx_val, key="create_beverage_type")
-                    st.text_input("Brand name", value=_dv("brand_name"), placeholder="e.g. ABC Distillery", key="create_brand_name")
-                    st.text_input("Class / type", value=_dv("class_type"), placeholder="e.g. Straight Rye Whisky", key="create_class_type")
+                    st.text_input("Brand name", placeholder="e.g. ABC Distillery", key="create_brand_name")
+                    st.text_input("Class / type", placeholder="e.g. Straight Rye Whisky", key="create_class_type")
                     _cur_bev = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
                     _abv_label = "Alcohol % (optional)" if _cur_bev == "Beer / Malt Beverage" else "Alcohol %"
                     if _cur_bev == "Distilled Spirits":
                         c1, c2 = st.columns(2)
                         with c1:
-                            st.text_input(_abv_label, value=_dv("alcohol_pct"), placeholder="45", key="create_alcohol_pct")
+                            st.text_input(_abv_label, placeholder="45", key="create_alcohol_pct")
                         with c2:
-                            st.text_input("Proof", value=_dv("proof"), placeholder="90", key="create_proof")
+                            st.text_input("Proof", placeholder="90", key="create_proof")
                     else:
-                        st.text_input(_abv_label, value=_dv("alcohol_pct"), placeholder="45", key="create_alcohol_pct")
-                    st.text_input("Net contents", value=_dv("net_contents_ml"), placeholder="e.g. 750 mL, 1 QT, 12 FL OZ", key="create_net_contents_ml")
-                    st.text_input("Bottler / Producer", value=_dv("bottler_name"), placeholder="ABC Distillery", key="create_bottler_name")
+                        st.text_input(_abv_label, placeholder="45", key="create_alcohol_pct")
+                    st.text_input("Net contents", placeholder="e.g. 750 mL, 1 QT, 12 FL OZ", key="create_net_contents_ml")
+                    st.text_input("Bottler / Producer", placeholder="ABC Distillery", key="create_bottler_name")
                     c3, c4 = st.columns(2)
                     with c3:
-                        st.text_input("City", value=_dv("bottler_city"), placeholder="Frederick", key="create_bottler_city")
+                        st.text_input("City", placeholder="Frederick", key="create_bottler_city")
                     with c4:
-                        st.text_input("State", value=_dv("bottler_state"), placeholder="MD", key="create_bottler_state")
-                    st.checkbox("Imported product", value=_form_fill.get("imported", False) if _form_fill else False, key="create_imported")
-                    st.text_input("Country of origin", value=_dv("country_of_origin"), key="create_country_of_origin")
+                        st.text_input("State", placeholder="MD", key="create_bottler_state")
+                    st.checkbox("Imported product", key="create_imported")
+                    st.text_input("Country of origin", key="create_country_of_origin")
                     with st.expander("Conditional statements"):
                         sc1, sc2 = st.columns(2)
                         with sc1:

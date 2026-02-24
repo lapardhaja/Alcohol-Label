@@ -10,6 +10,7 @@ venv/
 ENV/
 .pytest_cache/
 *.log
+tests/approve_flow_screenshots/
 
 # IDE / OS
 .idea/
@@ -24,5 +25,6 @@ Thumbs.db
 
 # Data / outputs (optional: remove if you want to track these)
 *.csv
+!sample_data/batch_example.csv
 data/
 !config/

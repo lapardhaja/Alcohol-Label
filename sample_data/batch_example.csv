@@ -1,0 +1,7 @@
+label_id,brand_name,class_type,alcohol_pct,proof,net_contents_ml,bottler_name,bottler_city,bottler_state,imported,country_of_origin,beverage_type
+test_1,ABC Distillery,Single Barrel Straight Rye Whisky,45,90,750 mL,ABC Distillery,Frederick,MD,false,,Distilled Spirits
+test_2,Malt & Hop Brewery,Pale Ale,5,,24 fl oz,Malt & Hop Brewery,Hyattsville,MD,false,,Beer / Malt Beverage
+test_3,Milo's Ale,Ale,5,,1 qt,Example Brewing Company,,,false,,Beer / Malt Beverage
+test_4,Malt & Hop Brewery,Barleywine Ale,9,,12 fl oz,Malt & Hop Brewery,,,false,,Beer / Malt Beverage
+test_5,Downunder Winery,Red Wine,12,,750 mL,OZ Imports,,,true,Australia,Wine
+test_6,ABC Winery,Merlot,13,,750 mL,ABC Winery,,,false,,Wine

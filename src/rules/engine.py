@@ -530,7 +530,8 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     required_full = (warning_cfg.get("full_statement") or "").strip()
     if normalize and required_full:
         required_full = " ".join(required_full.split())
-    if required_full and required_full not in full_text:
+    # Compare case-insensitively: OCR often returns all caps; required text may be mixed case
+    if required_full and required_full.upper() not in full_text.upper():
         if len(full_text) < 50:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "fail",
                             "message": "Warning text appears incomplete or incorrect.", "bbox_ref": bbox_warn,
@@ -542,7 +543,7 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     else:
         results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "pass",
                         "message": "Warning statement present and appears complete.", "bbox_ref": bbox_warn,
-                        "extracted_value": full_text[:80], "app_value": "Required statement"})
+                        "extracted_value": full_text[:80], "app_value": required_full[:80] if required_full else "Required statement"})
 
     return results
 

@@ -4,6 +4,7 @@ Modes: Single Labeling | Batch Labeling.
 """
 from collections import defaultdict
 import io
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -105,13 +106,13 @@ _SAMPLE_PRESETS = {
         "country_of_origin": "",
         "beverage_type": "Beer / Malt Beverage",
     },
-    "test_4 — Tiger's Special Barleywine (Beer)": {
-        "brand_name": "Tiger's Special",
+    "test_4 — Malt & Hop Brewery (Beer)": {
+        "brand_name": "Malt & Hop Brewery",
         "class_type": "Barleywine Ale",
         "alcohol_pct": "9",
         "proof": "",
         "net_contents_ml": "12 fl oz",
-        "bottler_name": "",
+        "bottler_name": "Malt & Hop Brewery",
         "bottler_city": "",
         "bottler_state": "",
         "imported": False,
@@ -143,6 +144,19 @@ _SAMPLE_PRESETS = {
         "imported": False,
         "country_of_origin": "",
         "beverage_type": "Wine",
+    },
+    "test_7 — Woodford Reserve (Spirits)": {
+        "brand_name": "Woodford Reserve",
+        "class_type": "Bourbon Whiskey",
+        "alcohol_pct": "45.2",
+        "proof": "90.4",
+        "net_contents_ml": "375 mL",
+        "bottler_name": "Woodford Reserve",
+        "bottler_city": "",
+        "bottler_state": "KY",
+        "imported": False,
+        "country_of_origin": "",
+        "beverage_type": "Distilled Spirits",
     },
 }
 
@@ -289,14 +303,9 @@ def _single_label_screen():
                         ss.setdefault(_k, False if _k in _bool_keys else "")
                     ss["preset_just_changed"] = False
 
-                def _bev_idx() -> int:
-                    _bev = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
-                    return _BEVERAGE_TYPES.index(_bev) if _bev in _BEVERAGE_TYPES else 0
-
                 with st.expander("Application details", expanded=True):
-                    _bev = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
-                    _bev_idx_val = _BEVERAGE_TYPES.index(_bev) if _bev in _BEVERAGE_TYPES else 0
-                    st.selectbox("Beverage type", _BEVERAGE_TYPES, index=_bev_idx_val, key="create_beverage_type")
+                    # Don't pass index= when key is used: value is driven by session state only
+                    st.selectbox("Beverage type", _BEVERAGE_TYPES, key="create_beverage_type")
                     st.text_input("Brand name", placeholder="e.g. ABC Distillery", key="create_brand_name")
                     st.text_input("Class / type", placeholder="e.g. Straight Rye Whisky", key="create_class_type")
                     _cur_bev = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
@@ -486,7 +495,7 @@ def _single_label_screen():
                     "Upload label image",
                     type=["png", "jpg", "jpeg"],
                     key="single_upload",
-                    help="PNG, JPG. Photos of labels, scans, or digital artwork.",
+                    help="PNG, JPG, JPEG. Photos of labels, scans, or digital artwork.",
                 )
                 if upload is not None:
                     st.image(upload, width=500, caption="Preview")
@@ -860,6 +869,15 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
                 st.info("No OCR blocks detected.")
 
 
+def _government_warning_display(raw: str) -> str:
+    """Format government warning for display; ensure 'Surgeon General' has capital S and G."""
+    if not raw or raw == "(not found)":
+        return raw
+    # Ensure "Surgeon General" is always capitalized (S and G) regardless of all-caps or not
+    out = re.sub(r"\bsurgeon\s+general\b", "Surgeon General", raw.strip(), flags=re.IGNORECASE)
+    return out
+
+
 def _render_comparison_table(extracted: dict, result: dict):
     fields = [
         ("Brand name", "brand_name"),
@@ -877,6 +895,8 @@ def _render_comparison_table(extracted: dict, result: dict):
         if isinstance(val, dict):
             val = val.get("value", "")
         display_val = val if val else "(not found)"
+        if key == "government_warning":
+            display_val = _government_warning_display(display_val)
         if key == "government_warning" and len(display_val) > 80:
             display_val = display_val[:80] + "..."
         rows.append({"Field": label, "Extracted from label": display_val})
@@ -1066,7 +1086,9 @@ def _batch_screen():
         st.code(
             "label_id,brand_name,class_type,alcohol_pct,proof,net_contents_ml,bottler_name,bottler_city,bottler_state,imported,country_of_origin,beverage_type\n"
             "test_1,ABC Distillery,Single Barrel Straight Rye Whisky,45,90,750 mL,ABC Distillery,Frederick,MD,false,,Distilled Spirits\n"
-            "test_2,Malt & Hop Brewery,Pale Ale,5,,24 fl oz,Malt & Hop Brewery,Hyattsville,MD,false,,Beer / Malt Beverage",
+            "test_2,Malt & Hop Brewery,Pale Ale,5,,24 fl oz,Malt & Hop Brewery,Hyattsville,MD,false,,Beer / Malt Beverage\n"
+            "test_4,Malt & Hop Brewery,Barleywine Ale,9,,12 fl oz,Malt & Hop Brewery,,,false,,Beer / Malt Beverage\n"
+            "test_7,Woodford Reserve,Bourbon Whiskey,45.2,90.4,375 mL,Woodford Reserve,,KY,false,,Distilled Spirits",
             language=None,
         )
         st.caption("See sample_data/batch_example.csv for a full example.")

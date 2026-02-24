@@ -54,12 +54,12 @@ EXPECTED = {
         "beverage_type": "beer",
     },
     "test_4": {
-        "brand_name": "Tiger's Special",
+        "brand_name": "Malt & Hop Brewery",
         "class_type": "Barleywine Ale",
         "alcohol_pct": "9",
         "proof": "",
         "net_contents_ml": "12 fl oz",
-        "bottler_name": "",
+        "bottler_name": "Malt & Hop Brewery",
         "bottler_city": "",
         "bottler_state": "",
         "imported": False,
@@ -91,6 +91,19 @@ EXPECTED = {
         "imported": False,
         "country_of_origin": "",
         "beverage_type": "wine",
+    },
+    "test_7": {
+        "brand_name": "Woodford Reserve",
+        "class_type": "Bourbon Whiskey",
+        "alcohol_pct": "45.2",
+        "proof": "90.4",
+        "net_contents_ml": "375 mL",
+        "bottler_name": "Woodford Reserve",
+        "bottler_city": "",
+        "bottler_state": "KY",
+        "imported": False,
+        "country_of_origin": "",
+        "beverage_type": "spirits",
     },
 }
 
@@ -159,6 +172,9 @@ def main():
         "test_6.jpg",
         "test_6.png",
         "test_6.jpeg",
+        "test_7.jpg",
+        "test_7.png",
+        "test_7.jpeg",
     ]
 
     found = {}

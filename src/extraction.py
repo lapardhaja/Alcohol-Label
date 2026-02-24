@@ -383,18 +383,68 @@ _COUNTRY_RE = re.compile(
     re.I,
 )
 
-_KNOWN_COUNTRIES = frozenset({
-    "scotland", "ireland", "france", "italy", "spain", "germany", "mexico",
-    "japan", "canada", "australia", "new zealand", "chile", "argentina",
-    "brazil", "south africa", "netherlands", "belgium", "sweden", "norway",
-    "denmark", "finland", "iceland", "portugal", "greece", "austria",
-    "switzerland", "poland", "czech republic", "hungary", "romania",
-    "india", "china", "south korea", "taiwan", "thailand", "philippines",
-    "united kingdom", "england", "wales", "russia", "ukraine", "turkey",
-    "israel", "peru", "colombia", "costa rica", "jamaica", "barbados",
-    "trinidad", "guyana", "cuba", "dominican republic", "puerto rico",
-    "guatemala", "nicaragua", "el salvador", "honduras", "panama",
-})
+_KNOWN_COUNTRIES = frozenset(
+    {
+        "scotland",
+        "ireland",
+        "france",
+        "italy",
+        "spain",
+        "germany",
+        "mexico",
+        "japan",
+        "canada",
+        "australia",
+        "new zealand",
+        "chile",
+        "argentina",
+        "brazil",
+        "south africa",
+        "netherlands",
+        "belgium",
+        "sweden",
+        "norway",
+        "denmark",
+        "finland",
+        "iceland",
+        "portugal",
+        "greece",
+        "austria",
+        "switzerland",
+        "poland",
+        "czech republic",
+        "hungary",
+        "romania",
+        "india",
+        "china",
+        "south korea",
+        "taiwan",
+        "thailand",
+        "philippines",
+        "united kingdom",
+        "england",
+        "wales",
+        "russia",
+        "ukraine",
+        "turkey",
+        "israel",
+        "peru",
+        "colombia",
+        "costa rica",
+        "jamaica",
+        "barbados",
+        "trinidad",
+        "guyana",
+        "cuba",
+        "dominican republic",
+        "puerto rico",
+        "guatemala",
+        "nicaragua",
+        "el salvador",
+        "honduras",
+        "panama",
+    }
+)
 
 
 def _is_stop_content(text: str) -> bool:
@@ -797,9 +847,10 @@ def _extract_bottler(blocks: list[dict]) -> dict[str, Any]:
         if m:
             collected = [b]
             line_h = _bbox_height(b)
-            for j in range(i + 1, min(i + 4, len(blocks))):
+            # Collect up to 8 following blocks so address (e.g. "Frederick, MD") is often included
+            for j in range(i + 1, min(i + 9, len(blocks))):
                 nb = blocks[j]
-                if _y_distance(nb, b) > line_h * 4:
+                if _y_distance(nb, b) > line_h * 5:
                     break
                 nt = (nb.get("text") or "").strip()
                 upper_nt = nt.upper()

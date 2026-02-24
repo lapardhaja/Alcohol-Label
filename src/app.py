@@ -1,6 +1,6 @@
 """
-TTB Alcohol Label Verification App - Streamlit entry.
-Modes: Single label | Batch review.
+BottleProof — Computer Based Alcohol Label Validation.
+Modes: Single Labeling | Batch Labeling.
 """
 from collections import defaultdict
 import io
@@ -28,6 +28,10 @@ st.markdown("""
 <style>
     .stApp { font-size: 1.05rem; }
     [data-testid="stSidebar"] { font-size: 0.95rem; }
+    .brand-bottleproof { color: #28a745; font-weight: 700; }
+    .brand-proof { color: #fd7e14; font-weight: 700; }
+    .brand-subtitle { font-size: 1.45rem; font-weight: 500; }
+    .st-key-batch_run_btn button { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; }
     .status-banner {
         padding: 1rem 1.5rem;
         border-radius: 0.5rem;
@@ -41,8 +45,24 @@ st.markdown("""
     .status-fail { background: #f8d7da; color: #721c24; border: 2px solid #dc3545; }
     [class*="approve_btn"] button { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; }
     [class*="decline_btn"] button { background-color: #dc3545 !important; border-color: #dc3545 !important; color: white !important; }
+    html, .stApp { scrollbar-width: 14px; }
+    ::-webkit-scrollbar { width: 14px; height: 14px; }
+    ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 7px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
 </style>
 """, unsafe_allow_html=True)
+
+
+def _render_brand_title(mode: str):
+    """Render BottleProof title (Bottle=green, Proof=orange) and larger subtitle. mode: 'single' | 'batch'."""
+    suffix = "Single Labeling" if mode == "single" else "Batch Labeling"
+    st.markdown(
+        f'<h1 style="margin-bottom: 0.25rem;">'
+        f'<span class="brand-bottleproof">Bottle</span><span class="brand-proof">Proof</span> — {suffix}'
+        f'</h1>'
+        f'<p class="brand-subtitle" style="margin-top: 0.25rem;">Computer Based Alcohol Label Validation</p>',
+        unsafe_allow_html=True,
+    )
 
 
 _SAMPLE_PRESETS = {
@@ -187,11 +207,11 @@ def main():
             st.image(str(_LOGO_PATH), width=180)
         mode = st.radio(
             "Mode",
-            ["Single label", "Batch review"],
+            ["Single Labeling", "Batch Labeling"],
             horizontal=True,
             label_visibility="collapsed",
         )
-    if mode == "Single label":
+    if mode == "Single Labeling":
         _init_app_lists()
         _single_label_screen()
     else:
@@ -206,6 +226,11 @@ def _single_label_screen():
                 st.session_state["app_list_view"] = "create_new"
                 st.session_state["selected_app_id"] = None
                 st.session_state["selected_app_bucket"] = None
+                st.rerun()
+        if view_key == "create_new":
+            if st.button("Reset", key="single_reset", width="stretch"):
+                for key in ("last_single_result", "last_single_image_bytes", "last_single_app_data", "last_single_entry_id"):
+                    st.session_state.pop(key, None)
                 st.rerun()
         st.divider()
 
@@ -447,8 +472,7 @@ def _single_label_screen():
 
     # Create new: main area — title, large upload, preview, replace option, Check label
     if adding_new and "last_single_result" not in st.session_state:
-        st.title("BottleProof")
-        st.markdown("**Computer Based Alcohol Label Validation**")
+        _render_brand_title("single")
 
         with st.form("main_form", clear_on_submit=False):
             # Large upload area (wider center column)
@@ -605,8 +629,7 @@ def _single_label_screen():
         _render_single_result(result, image_bytes, approve_reject={"entry": entry, "selected_id": None})
         return
 
-    st.title("BottleProof")
-    st.markdown("**Computer Based Alcohol Label Validation**")
+    _render_brand_title("single")
     st.caption("Upload a label and click **Check label**.")
 
 
@@ -775,13 +798,18 @@ def _batch_screen():
     import zipfile
     from src.pipeline import run_pipeline
 
-    st.title("TTB Label Verification — Batch")
+    _render_brand_title("batch")
 
     with st.sidebar:
-        st.header("Batch Upload")
+        if st.button("Reset", key="batch_reset", width="stretch"):
+            for key in ("batch_results", "batch_selected_id", "batch_decisions"):
+                st.session_state.pop(key, None)
+            st.rerun()
+        st.divider()
         zip_upload = st.file_uploader("Upload ZIP of label images", type=["zip"], key="batch_zip")
         csv_upload = st.file_uploader("Upload CSV (application data)", type=["csv"], key="batch_csv")
-        run_batch = st.button("Run batch checks", key="batch_run", type="primary", width="stretch")
+        with st.container(key="batch_run_btn"):
+            run_batch = st.button("Run batch checks", key="batch_run", type="primary", width="stretch")
 
     batch_results = st.session_state.get("batch_results", [])
     selected_id = st.session_state.get("batch_selected_id")
@@ -844,6 +872,8 @@ def _batch_screen():
                     st.error(f"Batch failed: {e}")
 
     if batch_results:
+        batch_decisions = st.session_state.get("batch_decisions", {})
+
         df_display = pd.DataFrame([
             {
                 "label_id": r["label_id"],
@@ -851,6 +881,7 @@ def _batch_screen():
                 "class_type": r["class_type"],
                 "overall_status": r["overall_status"],
                 "failed_rules": r["fail_count"],
+                "decision": batch_decisions.get(r["label_id"], "—"),
             }
             for r in batch_results
         ])
@@ -862,6 +893,49 @@ def _batch_screen():
         if status_filter != "All":
             df_display = df_display[df_display["overall_status"] == status_filter]
         st.dataframe(df_display, width="stretch", hide_index=True)
+
+        st.markdown("**Decisions**")
+        for r in batch_results:
+            lid = r["label_id"]
+            dec = batch_decisions.get(lid)
+            c1, c2, c3, c4, c5, c6 = st.columns([1.2, 2, 2, 1.2, 0.8, 2])
+            with c1:
+                st.text(lid)
+            with c2:
+                st.text(r["brand_name"])
+            with c3:
+                st.text(r["class_type"])
+            with c4:
+                st.text(r["overall_status"])
+            with c5:
+                st.text(str(r["fail_count"]))
+            with c6:
+                if dec == "approved":
+                    st.markdown("**Approved**")
+                    if st.button("Undo", key=f"batch_undo_{lid}"):
+                        d = dict(st.session_state.get("batch_decisions", {}))
+                        d.pop(lid, None)
+                        st.session_state["batch_decisions"] = d
+                        st.rerun()
+                elif dec == "declined":
+                    st.markdown("**Declined**")
+                    if st.button("Undo", key=f"batch_undo_{lid}"):
+                        d = dict(st.session_state.get("batch_decisions", {}))
+                        d.pop(lid, None)
+                        st.session_state["batch_decisions"] = d
+                        st.rerun()
+                else:
+                    if st.button("Approve", key=f"batch_approve_{lid}", type="primary"):
+                        d = dict(st.session_state.get("batch_decisions", {}))
+                        d[lid] = "approved"
+                        st.session_state["batch_decisions"] = d
+                        st.rerun()
+                    if st.button("Decline", key=f"batch_decline_{lid}"):
+                        d = dict(st.session_state.get("batch_decisions", {}))
+                        d[lid] = "declined"
+                        st.session_state["batch_decisions"] = d
+                        st.rerun()
+            st.divider()
 
         st.markdown("**View detail**")
         label_ids = [r["label_id"] for r in batch_results]
@@ -884,11 +958,21 @@ def _batch_screen():
             st.rerun()
 
     if not batch_results:
-        st.caption(
-            "Upload a ZIP of label images and a CSV with columns: label_id, brand_name, "
-            "class_type, alcohol_pct, proof, net_contents_ml, bottler_name, bottler_city, "
-            "bottler_state, imported, country_of_origin, beverage_type, and optional flags."
+        st.markdown("Upload a **ZIP** of label images and a **CSV** file with one row per label.")
+        st.markdown("**Required CSV columns:**")
+        st.markdown(
+            "`label_id`, `brand_name`, `class_type`, `alcohol_pct`, `proof`, `net_contents_ml`, "
+            "`bottler_name`, `bottler_city`, `bottler_state`, `imported`, `country_of_origin`, `beverage_type`"
         )
+        st.markdown("You can add optional columns: `sulfites_required`, `age_statement_required`, `wood_treatment_required`, `neutral_spirits_required`, etc.")
+        st.markdown("**Example (first 2 rows):**")
+        st.code(
+            "label_id,brand_name,class_type,alcohol_pct,proof,net_contents_ml,bottler_name,bottler_city,bottler_state,imported,country_of_origin,beverage_type\n"
+            "test_1,ABC Distillery,Single Barrel Straight Rye Whisky,45,90,750 mL,ABC Distillery,Frederick,MD,false,,Distilled Spirits\n"
+            "test_2,Malt & Hop Brewery,Pale Ale,5,,24 fl oz,Malt & Hop Brewery,Hyattsville,MD,false,,Beer / Malt Beverage",
+            language=None,
+        )
+        st.caption("See sample_data/batch_example.csv for a full example.")
 
 
 # ---------------------------------------------------------------------------

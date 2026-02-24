@@ -2,7 +2,6 @@
 BottleProof — Computer Based Alcohol Label Validation.
 Modes: Single Labeling | Batch Labeling.
 """
-import datetime
 import io
 import re
 import sys
@@ -17,7 +16,6 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 _LOGO_PATH = _root / "assets" / "logo.png"
-_BUILD_ID = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d-%H%M")
 
 st.set_page_config(
     page_title="BottleProof — Computer Based Alcohol Label Validation",
@@ -226,7 +224,6 @@ def main():
             horizontal=True,
             label_visibility="collapsed",
         )
-        st.caption(f"Build {_BUILD_ID}")
     if mode == "Single Labeling":
         _init_app_lists()
         _single_label_screen()
@@ -694,7 +691,7 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
         if (
             not skip_heuristic
             and app_val
-            and len(ext_val) > max(50, 2 * len(app_val))
+            and len(ext_val) > len(app_val)
             and _app_part_in_extracted(app_val, ext_val)
         ):
             ext_val = app_val

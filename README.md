@@ -18,7 +18,7 @@ Streamlit prototype for TTB label compliance agents: verify distilled spirits la
    - **macOS:** `brew install tesseract`
    - **Linux:** `sudo apt install tesseract-ocr` (or equivalent)
 
-   The app looks for Tesseract in standard install locations first, so adding it to PATH is only needed if you installed to a custom location. Use the [latest Tesseract](https://github.com/UB-Mannheim/tesseract/wiki) for best OCR quality.
+   The app looks for Tesseract in standard install locations first, so adding it to PATH is only needed if you installed to a custom location. **For parity with Streamlit Cloud**, install Tesseract 5.3 (e.g. [UB-Mannheim Windows 5.3.3](https://github.com/UB-Mannheim/tesseract/wiki) or `apt install tesseract-ocr` on Debian 12 bookworm).
 
 3. **Install dependencies**:
 

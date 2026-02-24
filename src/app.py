@@ -914,6 +914,12 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
             _render_comparison_table(extracted, result)
 
         with tab_raw:
+            try:
+                import pytesseract
+                tesseract_ver = pytesseract.get_tesseract_version()
+                st.caption(f"Tesseract {tesseract_ver}")
+            except Exception:
+                pass
             ocr_blocks = result.get("ocr_blocks", [])
             if img is not None:
                 with st.expander("Preprocessing (images fed to Tesseract)"):

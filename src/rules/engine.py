@@ -173,6 +173,62 @@ def _tokens_found_in_text(app_val: str, full_text: str) -> bool:
     return all(t in text_lower for t in a_tokens)
 
 
+# ---------------------------------------------------------------------------
+# OCR confusable detection
+# ---------------------------------------------------------------------------
+
+_OCR_CONFUSABLE_PAIRS: list[tuple[str, str]] = [
+    ("l", "1"), ("1", "l"),
+    ("I", "l"), ("l", "I"),
+    ("I", "1"), ("1", "I"),
+    ("O", "0"), ("0", "O"),
+    ("o", "0"), ("0", "o"),
+    ("S", "5"), ("5", "S"),
+    ("B", "8"), ("8", "B"),
+    ("rn", "m"), ("m", "rn"),
+    (",", "."), (".", ","),
+    ("'", "'"), ("'", "'"),
+    ('"', '"'), ('"', '"'),
+    ("c", "e"), ("e", "c"),
+]
+
+
+def _is_ocr_confusable(a: str, b: str) -> bool:
+    """Check if two strings differ only by common OCR substitution characters."""
+    if not a or not b:
+        return False
+    a_n = _norm(a).lower()
+    b_n = _norm(b).lower()
+    if a_n == b_n:
+        return True
+    if len(a_n) != len(b_n) and abs(len(a_n) - len(b_n)) > 2:
+        return False
+    for orig, repl in _OCR_CONFUSABLE_PAIRS:
+        if a_n.replace(orig.lower(), repl.lower()) == b_n:
+            return True
+        if b_n.replace(orig.lower(), repl.lower()) == a_n:
+            return True
+    diff_count = sum(1 for ca, cb in zip(a_n, b_n) if ca != cb)
+    if diff_count <= 2 and diff_count > 0:
+        for i, (ca, cb) in enumerate(zip(a_n, b_n)):
+            if ca != cb:
+                if not any((ca == p[0].lower() and cb == p[1].lower()) or
+                           (cb == p[0].lower() and ca == p[1].lower())
+                           for p in _OCR_CONFUSABLE_PAIRS):
+                    return False
+        return True
+    return False
+
+
+def _parse_abv_float(s: str) -> float | None:
+    """Parse ABV string to float, stripping trailing % etc."""
+    s = _norm(s).rstrip("%").strip()
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return None
+
+
 def _rules_identity(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     results = []
     sim_config = config.get("similarity", {})
@@ -198,14 +254,19 @@ def _rules_identity(extracted: dict, app_data: dict, config: dict) -> list[dict]
                             "message": f"Brand name matches ({reason}).", "bbox_ref": bbox_brand,
                             "extracted_value": brand_label, "app_value": brand_app})
         elif score >= review_thresh:
+            ocr_hint = " — likely OCR misread" if _is_ocr_confusable(brand_app, brand_label) else ""
             results.append({"rule_id": "Brand name matches", "category": "Identity", "status": "needs_review",
-                            "message": f"Brand name similar but not exact ({reason}, {score:.0%}).", "bbox_ref": bbox_brand,
+                            "message": f"Brand name similar but not exact ({reason}, {score:.0%}){ocr_hint}.", "bbox_ref": bbox_brand,
                             "extracted_value": brand_label, "app_value": brand_app})
         else:
             all_text = " ".join(b.get("text", "") for b in extracted.get("_all_blocks", []))
             if brand_app and _tokens_found_in_text(brand_app, all_text):
                 results.append({"rule_id": "Brand name matches", "category": "Identity", "status": "needs_review",
                                 "message": "Brand name found elsewhere on label, not in primary position.", "bbox_ref": bbox_brand,
+                                "extracted_value": brand_label, "app_value": brand_app})
+            elif _is_ocr_confusable(brand_app, brand_label):
+                results.append({"rule_id": "Brand name matches", "category": "Identity", "status": "needs_review",
+                                "message": f"Brand name differs — likely OCR misread, verify manually ({score:.0%}).", "bbox_ref": bbox_brand,
                                 "extracted_value": brand_label, "app_value": brand_app})
             else:
                 results.append({"rule_id": "Brand name matches", "category": "Identity", "status": "fail",
@@ -231,14 +292,19 @@ def _rules_identity(extracted: dict, app_data: dict, config: dict) -> list[dict]
                             "message": f"Class/type matches ({reason}).", "bbox_ref": bbox_class,
                             "extracted_value": class_label, "app_value": class_app})
         elif score >= review_thresh:
+            ocr_hint = " — likely OCR misread" if _is_ocr_confusable(class_app, class_label) else ""
             results.append({"rule_id": "Class/type matches", "category": "Identity", "status": "needs_review",
-                            "message": f"Class/type similar but not exact ({reason}, {score:.0%}).", "bbox_ref": bbox_class,
+                            "message": f"Class/type similar but not exact ({reason}, {score:.0%}){ocr_hint}.", "bbox_ref": bbox_class,
                             "extracted_value": class_label, "app_value": class_app})
         else:
             all_text = " ".join(b.get("text", "") for b in extracted.get("_all_blocks", []))
             if class_app and _tokens_found_in_text(class_app, all_text):
                 results.append({"rule_id": "Class/type matches", "category": "Identity", "status": "needs_review",
                                 "message": f"Class/type '{class_app}' found elsewhere on label, not in primary class position.", "bbox_ref": bbox_class,
+                                "extracted_value": class_label, "app_value": class_app})
+            elif _is_ocr_confusable(class_app, class_label):
+                results.append({"rule_id": "Class/type matches", "category": "Identity", "status": "needs_review",
+                                "message": f"Class/type differs — likely OCR misread, verify manually ({score:.0%}).", "bbox_ref": bbox_class,
                                 "extracted_value": class_label, "app_value": class_app})
             else:
                 results.append({"rule_id": "Class/type matches", "category": "Identity", "status": "fail",
@@ -273,10 +339,26 @@ def _rules_alcohol_contents(extracted: dict, app_data: dict, config: dict, bever
             results.append({"rule_id": "Alcohol content present", "category": "Alcohol & contents", "status": "pass",
                             "message": "Alcohol content not required for this beverage type.", "bbox_ref": None,
                             "extracted_value": "", "app_value": app_pct})
-    elif app_pct and label_pct != app_pct:
-        results.append({"rule_id": "Alcohol content matches", "category": "Alcohol & contents", "status": "needs_review",
-                        "message": f"ABV on label ({label_pct}%) does not match application ({app_pct}%).", "bbox_ref": bbox_pct,
-                        "extracted_value": label_pct, "app_value": app_pct})
+    elif app_pct:
+        label_f = _parse_abv_float(label_pct)
+        app_f = _parse_abv_float(app_pct)
+        if label_f is not None and app_f is not None and abs(label_f - app_f) <= 0.15:
+            results.append({"rule_id": "Alcohol content", "category": "Alcohol & contents", "status": "pass",
+                            "message": "Alcohol content present and matches.", "bbox_ref": bbox_pct,
+                            "extracted_value": label_pct, "app_value": app_pct})
+        elif label_f is not None and app_f is not None:
+            if _is_ocr_confusable(label_pct, app_pct):
+                results.append({"rule_id": "Alcohol content matches", "category": "Alcohol & contents", "status": "needs_review",
+                                "message": f"ABV on label ({label_pct}%) differs from application ({app_pct}%) — likely OCR misread, verify manually.", "bbox_ref": bbox_pct,
+                                "extracted_value": label_pct, "app_value": app_pct})
+            else:
+                results.append({"rule_id": "Alcohol content matches", "category": "Alcohol & contents", "status": "needs_review",
+                                "message": f"ABV on label ({label_pct}%) does not match application ({app_pct}%).", "bbox_ref": bbox_pct,
+                                "extracted_value": label_pct, "app_value": app_pct})
+        else:
+            results.append({"rule_id": "Alcohol content", "category": "Alcohol & contents", "status": "pass",
+                            "message": "Alcohol content present.", "bbox_ref": bbox_pct,
+                            "extracted_value": label_pct, "app_value": app_pct})
     else:
         results.append({"rule_id": "Alcohol content", "category": "Alcohol & contents", "status": "pass",
                         "message": "Alcohol content present and matches.", "bbox_ref": bbox_pct,
@@ -298,6 +380,23 @@ def _rules_alcohol_contents(extracted: dict, app_data: dict, config: dict, bever
         results.append({"rule_id": "Proof", "category": "Alcohol & contents", "status": "pass",
                         "message": "Proof present and matches.", "bbox_ref": bbox_proof,
                         "extracted_value": label_proof, "app_value": app_proof})
+
+    # Proof-to-ABV consistency: proof should equal 2 × ABV
+    if label_pct and label_proof:
+        abv_f = _parse_abv_float(label_pct)
+        proof_f = _parse_abv_float(label_proof)
+        if abv_f is not None and proof_f is not None:
+            expected_proof = abv_f * 2
+            if abs(proof_f - expected_proof) > 1.0:
+                results.append({"rule_id": "Proof/ABV consistency", "category": "Alcohol & contents", "status": "needs_review",
+                                "message": f"Proof ({label_proof}) does not equal 2× ABV ({label_pct}%). Expected proof ≈ {expected_proof:.0f}.",
+                                "bbox_ref": bbox_proof, "extracted_value": f"{label_pct}% / {label_proof} proof",
+                                "app_value": f"proof = 2 × ABV"})
+            else:
+                results.append({"rule_id": "Proof/ABV consistency", "category": "Alcohol & contents", "status": "pass",
+                                "message": "Proof and ABV are consistent (proof = 2 × ABV).",
+                                "bbox_ref": bbox_proof, "extracted_value": f"{label_pct}% / {label_proof} proof",
+                                "app_value": ""})
 
     if not label_net:
         results.append({"rule_id": "Net contents present", "category": "Alcohol & contents", "status": "fail",
@@ -346,6 +445,10 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
         results.append({"rule_id": "GOVERNMENT WARNING in caps", "category": "Warning", "status": "pass",
                         "message": "GOVERNMENT WARNING appears in required form.", "bbox_ref": bbox_warn,
                         "extracted_value": "GOVERNMENT WARNING", "app_value": "GOVERNMENT WARNING"})
+
+    results.append({"rule_id": "GOVERNMENT WARNING bold", "category": "Warning", "status": "needs_review",
+                    "message": "TTB requires 'GOVERNMENT WARNING:' in bold — cannot verify via OCR, manual check needed.",
+                    "bbox_ref": bbox_warn, "extracted_value": "", "app_value": "Bold required"})
 
     required_full = (warning_cfg.get("full_statement") or "").strip()
     if normalize and required_full:
@@ -403,9 +506,31 @@ def _rules_origin(extracted: dict, app_data: dict, config: dict) -> list[dict]:
                             "message": f"Bottler on label may not match application ({reason}, {score:.0%}).", "bbox_ref": bbox_bottler,
                             "extracted_value": bottler_label, "app_value": bottler_app})
         else:
+            ocr_hint = " — likely OCR misread" if _is_ocr_confusable(bottler_app, bottler_label) else ""
             results.append({"rule_id": "Bottler matches", "category": "Origin", "status": "needs_review",
-                            "message": f"Bottler on label differs from application ({score:.0%}).", "bbox_ref": bbox_bottler,
+                            "message": f"Bottler on label differs from application ({score:.0%}){ocr_hint}.", "bbox_ref": bbox_bottler,
                             "extracted_value": bottler_label, "app_value": bottler_app})
+
+    # Bottler city/state cross-validation
+    bottler_city_app = _norm(app_data.get("bottler_city", ""))
+    bottler_state_app = _norm(app_data.get("bottler_state", ""))
+    if bottler_label and (bottler_city_app or bottler_state_app):
+        bl_lower = bottler_label.lower()
+        missing_parts = []
+        if bottler_city_app and bottler_city_app.lower() not in bl_lower:
+            missing_parts.append(f"city '{bottler_city_app}'")
+        if bottler_state_app and bottler_state_app.lower() not in bl_lower:
+            all_text = " ".join(b.get("text", "") for b in extracted.get("_all_blocks", []))
+            if bottler_state_app.upper() not in all_text.upper():
+                missing_parts.append(f"state '{bottler_state_app}'")
+        if missing_parts:
+            results.append({"rule_id": "Bottler address", "category": "Origin", "status": "needs_review",
+                            "message": f"Bottler {', '.join(missing_parts)} not found on label.", "bbox_ref": bbox_bottler,
+                            "extracted_value": bottler_label, "app_value": f"{bottler_city_app}, {bottler_state_app}"})
+        else:
+            results.append({"rule_id": "Bottler address", "category": "Origin", "status": "pass",
+                            "message": "Bottler city/state found on label.", "bbox_ref": bbox_bottler,
+                            "extracted_value": bottler_label, "app_value": f"{bottler_city_app}, {bottler_state_app}"})
 
     if app_data.get("imported"):
         co = _norm(extracted.get("country_of_origin", {}).get("value", ""))
@@ -415,6 +540,10 @@ def _rules_origin(extracted: dict, app_data: dict, config: dict) -> list[dict]:
             results.append({"rule_id": "Country of origin", "category": "Origin", "status": "fail",
                             "message": "Imported product must show country of origin.", "bbox_ref": bbox_co,
                             "extracted_value": "", "app_value": co_app})
+        elif co_app and co_app.lower() not in co.lower() and co.lower() not in co_app.lower():
+            results.append({"rule_id": "Country of origin matches", "category": "Origin", "status": "needs_review",
+                            "message": f"Country on label '{co}' may not match application '{co_app}'.", "bbox_ref": bbox_co,
+                            "extracted_value": co, "app_value": co_app})
         else:
             results.append({"rule_id": "Country of origin", "category": "Origin", "status": "pass",
                             "message": f"Country of origin found: {co}.", "bbox_ref": bbox_co,
@@ -423,10 +552,27 @@ def _rules_origin(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     return results
 
 
+def _infer_conditionals_from_class(class_type: str, config: dict) -> set[str]:
+    """Return set of conditional keys auto-required by spirit class (e.g. age_statement)."""
+    if not class_type:
+        return set()
+    ct_lower = class_type.lower()
+    required: set[str] = set()
+    for _rule_group in (config.get("spirit_class_rules") or {}).values():
+        for kw in _rule_group.get("keywords", []):
+            if kw.lower() in ct_lower:
+                required.update(_rule_group.get("require", []))
+    return required
+
+
 def _rules_other(extracted: dict, app_data: dict, config: dict, beverage_type: str = "spirits") -> list[dict]:
     results = []
     all_blocks_text = " ".join(b.get("text", "") for b in extracted.get("_all_blocks", []))
     blocks_lower = all_blocks_text.lower()
+
+    class_label = _norm(extracted.get("class_type", {}).get("value", ""))
+    class_app = _norm(app_data.get("class_type", ""))
+    inferred = _infer_conditionals_from_class(class_app or class_label, config)
 
     sulfites_required = app_data.get("sulfites_required", False)
     if beverage_type == "wine":
@@ -453,21 +599,24 @@ def _rules_other(extracted: dict, app_data: dict, config: dict, beverage_type: s
                         "message": "Cochineal/Carmine declaration found." if found else "Cochineal/Carmine disclosure required but not found.",
                         "bbox_ref": None, "extracted_value": "Found" if found else "", "app_value": "Required"})
 
-    if app_data.get("wood_treatment_required") and beverage_type in ("spirits", "distilled_spirits"):
+    _wood_required = app_data.get("wood_treatment_required") or ("wood_treatment" in inferred)
+    if _wood_required and beverage_type in ("spirits", "distilled_spirits"):
         found = "treated" in blocks_lower or "wood" in blocks_lower
         results.append({"rule_id": "Wood treatment", "category": "Other",
                         "status": "pass" if found else "fail",
                         "message": "Wood treatment statement found." if found else "Wood treatment statement required but not found.",
                         "bbox_ref": None, "extracted_value": "Found" if found else "", "app_value": "Required"})
 
-    if app_data.get("age_statement_required"):
+    _age_required = app_data.get("age_statement_required") or ("age_statement" in inferred)
+    if _age_required:
         found = "aged" in blocks_lower or "age" in blocks_lower or bool(re.search(r"\d+\s*years?", blocks_lower))
         results.append({"rule_id": "Age statement", "category": "Other",
                         "status": "pass" if found else "fail",
                         "message": "Age statement found." if found else "Age statement required but not found.",
                         "bbox_ref": None, "extracted_value": "Found" if found else "", "app_value": "Required"})
 
-    if app_data.get("neutral_spirits_required") and beverage_type in ("spirits", "distilled_spirits"):
+    _neutral_required = app_data.get("neutral_spirits_required") or ("neutral_spirits" in inferred)
+    if _neutral_required and beverage_type in ("spirits", "distilled_spirits"):
         found = "neutral spirits" in blocks_lower or "grain spirits" in blocks_lower
         results.append({"rule_id": "Neutral spirits / commodity", "category": "Other",
                         "status": "pass" if found else "fail",

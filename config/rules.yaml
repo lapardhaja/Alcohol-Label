@@ -165,6 +165,32 @@ class_type_keywords:
   - Baijiu
   - Cachaca
 
+# Spirit class → required conditionals (27 CFR Part 5).
+# The engine auto-requires these even if the user forgot to check them.
+spirit_class_rules:
+  straight_whiskey:
+    keywords:
+      - "Straight Bourbon"
+      - "Straight Rye"
+      - "Straight Wheat"
+      - "Straight Malt"
+      - "Straight Corn"
+      - "Straight Whiskey"
+      - "Straight Whisky"
+    require: [age_statement, state_of_distillation]
+  bourbon:
+    keywords: ["Bourbon"]
+    require: [state_of_distillation]
+  tennessee:
+    keywords: ["Tennessee Whiskey", "Tennessee Whisky"]
+    require: [state_of_distillation, age_statement]
+  neutral_spirits:
+    keywords: ["Vodka", "Neutral Spirits", "Grain Spirits"]
+    require: [neutral_spirits]
+  scotch:
+    keywords: ["Scotch Whisky", "Scotch"]
+    require: [country_of_origin]
+
 conditional_statements:
   sulfites: "Contains sulfites"
   fd_c_yellow_5: "FD&C Yellow No. 5"

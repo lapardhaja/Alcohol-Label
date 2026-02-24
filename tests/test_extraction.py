@@ -351,3 +351,55 @@ def test_brand_keeps_full_when_no_trailing_text():
     ]
     out = extract_fields(blocks)
     assert out["brand_name"]["value"].upper() == "ABC DISTILLERY"
+
+
+# ---------------------------------------------------------------------------
+# Wider country of origin detection
+# ---------------------------------------------------------------------------
+
+def test_country_product_of():
+    blocks = [{"text": "Product of Scotland", "bbox": [10, 10, 200, 30], "confidence": 90}]
+    out = extract_fields(blocks)
+    assert "Scotland" in out["country_of_origin"]["value"]
+
+
+def test_country_made_in():
+    blocks = [{"text": "Made in France", "bbox": [10, 10, 200, 30], "confidence": 90}]
+    out = extract_fields(blocks)
+    assert "France" in out["country_of_origin"]["value"]
+
+
+def test_country_imported_from():
+    blocks = [{"text": "Imported from Japan", "bbox": [10, 10, 200, 30], "confidence": 90}]
+    out = extract_fields(blocks)
+    assert "Japan" in out["country_of_origin"]["value"]
+
+
+def test_country_produce_of():
+    blocks = [{"text": "Produce of Italy", "bbox": [10, 10, 200, 30], "confidence": 90}]
+    out = extract_fields(blocks)
+    assert "Italy" in out["country_of_origin"]["value"]
+
+
+def test_country_wine_of():
+    blocks = [{"text": "Wine of Chile", "bbox": [10, 10, 200, 30], "confidence": 90}]
+    out = extract_fields(blocks)
+    assert "Chile" in out["country_of_origin"]["value"]
+
+
+def test_country_known_standalone():
+    blocks = [
+        {"text": "Some brand", "bbox": [10, 10, 200, 30], "confidence": 90},
+        {"text": "Scotland", "bbox": [10, 40, 100, 55], "confidence": 88},
+    ]
+    out = extract_fields(blocks)
+    assert "Scotland" in out["country_of_origin"]["value"]
+
+
+def test_country_not_extracted_from_long_text():
+    """Known country in long text should NOT be extracted (false positive guard)."""
+    blocks = [
+        {"text": "GOVERNMENT WARNING: According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects in France.", "bbox": [10, 10, 500, 60], "confidence": 90},
+    ]
+    out = extract_fields(blocks)
+    assert out["country_of_origin"]["value"] == ""

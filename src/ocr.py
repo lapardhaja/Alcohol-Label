@@ -91,6 +91,7 @@ def _preprocess_for_tesseract(img: Image.Image) -> tuple[Image.Image, Image.Imag
     img = _resize(img)
     arr = np.array(img)
     gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+    gray = _deskew(gray)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
     sharpened = cv2.filter2D(enhanced, -1, _SHARPEN_KERNEL)

@@ -375,7 +375,26 @@ _COMPOUND_NET_RE = re.compile(
 )
 
 _LOCATION_RE = re.compile(r"[A-Z][a-z]+,\s*[A-Z]{2}\b")
-_COUNTRY_RE = re.compile(r"Product\s+of\s+(.+)", re.I)
+_COUNTRY_RE = re.compile(
+    r"(?:Product|Produce|Wine|Vino)\s+(?:of|de)\s+(.+)"
+    r"|Made\s+in\s+(.+)"
+    r"|Imported\s+from\s+(.+)"
+    r"|Origin\s*:\s*(.+)",
+    re.I,
+)
+
+_KNOWN_COUNTRIES = frozenset({
+    "scotland", "ireland", "france", "italy", "spain", "germany", "mexico",
+    "japan", "canada", "australia", "new zealand", "chile", "argentina",
+    "brazil", "south africa", "netherlands", "belgium", "sweden", "norway",
+    "denmark", "finland", "iceland", "portugal", "greece", "austria",
+    "switzerland", "poland", "czech republic", "hungary", "romania",
+    "india", "china", "south korea", "taiwan", "thailand", "philippines",
+    "united kingdom", "england", "wales", "russia", "ukraine", "turkey",
+    "israel", "peru", "colombia", "costa rica", "jamaica", "barbados",
+    "trinidad", "guyana", "cuba", "dominican republic", "puerto rico",
+    "guatemala", "nicaragua", "el salvador", "honduras", "panama",
+})
 
 
 def _is_stop_content(text: str) -> bool:
@@ -826,7 +845,13 @@ def _extract_country(blocks: list[dict]) -> dict[str, Any]:
     for b in blocks:
         m = _COUNTRY_RE.search(b.get("text", ""))
         if m:
+            country_val = next((g for g in m.groups() if g), m.group(0))
             return {"value": m.group(0).strip(), "bbox": b.get("bbox")}
+    for b in blocks:
+        words = (b.get("text") or "").strip().lower()
+        for country in _KNOWN_COUNTRIES:
+            if country in words and len(words) < 40:
+                return {"value": (b.get("text") or "").strip(), "bbox": b.get("bbox")}
     return {"value": "", "bbox": None}
 
 

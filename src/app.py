@@ -270,11 +270,16 @@ def _single_label_screen():
                     st.selectbox("Beverage type", _BEVERAGE_TYPES, index=_bev_idx_val, key="create_beverage_type")
                     st.text_input("Brand name", value=_dv("brand_name"), placeholder="e.g. ABC Distillery", key="create_brand_name")
                     st.text_input("Class / type", value=_dv("class_type"), placeholder="e.g. Straight Rye Whisky", key="create_class_type")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.text_input("Alcohol %", value=_dv("alcohol_pct"), placeholder="45", key="create_alcohol_pct")
-                    with c2:
-                        st.text_input("Proof", value=_dv("proof"), placeholder="90", key="create_proof")
+                    _cur_bev = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
+                    _abv_label = "Alcohol % (optional)" if _cur_bev == "Beer / Malt Beverage" else "Alcohol %"
+                    if _cur_bev == "Distilled Spirits":
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.text_input(_abv_label, value=_dv("alcohol_pct"), placeholder="45", key="create_alcohol_pct")
+                        with c2:
+                            st.text_input("Proof", value=_dv("proof"), placeholder="90", key="create_proof")
+                    else:
+                        st.text_input(_abv_label, value=_dv("alcohol_pct"), placeholder="45", key="create_alcohol_pct")
                     st.text_input("Net contents", value=_dv("net_contents_ml"), placeholder="e.g. 750 mL, 1 QT, 12 FL OZ", key="create_net_contents_ml")
                     st.text_input("Bottler / Producer", value=_dv("bottler_name"), placeholder="ABC Distillery", key="create_bottler_name")
                     c3, c4 = st.columns(2)
@@ -291,11 +296,13 @@ def _single_label_screen():
                             st.checkbox("FD&C Yellow No. 5", key="create_fd_c_yellow_5")
                             st.checkbox("Cochineal / Carmine", key="create_carmine")
                         with sc2:
-                            st.checkbox("Wood treatment", key="create_wood_treatment")
-                            st.checkbox("Age statement", key="create_age_statement")
-                            st.checkbox("Neutral spirits %", key="create_neutral_spirits")
-                            st.checkbox("Aspartame", key="create_aspartame")
-                        if st.session_state.get("create_beverage_type", _BEVERAGE_TYPES[0]) == "Wine":
+                            if _cur_bev == "Distilled Spirits":
+                                st.checkbox("Wood treatment", key="create_wood_treatment")
+                                st.checkbox("Age statement", key="create_age_statement")
+                                st.checkbox("Neutral spirits %", key="create_neutral_spirits")
+                            if _cur_bev == "Beer / Malt Beverage":
+                                st.checkbox("Aspartame", key="create_aspartame")
+                        if _cur_bev == "Wine":
                             st.checkbox("Appellation of origin", key="create_appellation_required")
                             st.checkbox("Varietal designation", key="create_varietal_required")
 
@@ -324,11 +331,17 @@ def _single_label_screen():
                 beverage_type = st.selectbox("Beverage type", _BEVERAGE_TYPES, index=_bev_idx())
                 brand = st.text_input("Brand name", value=_dv("brand_name"), placeholder="e.g. ABC Distillery")
                 class_type = st.text_input("Class / type", value=_dv("class_type"), placeholder="e.g. Straight Rye Whisky")
-                c1, c2 = st.columns(2)
-                with c1:
-                    alcohol_pct = st.text_input("Alcohol %", value=_dv("alcohol_pct"), placeholder="45")
-                with c2:
-                    proof = st.text_input("Proof", value=_dv("proof"), placeholder="90")
+                _prev_bev = _form_fill.get("beverage_type", "Distilled Spirits") if _form_fill else "Distilled Spirits"
+                _abv_lbl = "Alcohol % (optional)" if _prev_bev == "Beer / Malt Beverage" else "Alcohol %"
+                if _prev_bev == "Distilled Spirits":
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        alcohol_pct = st.text_input(_abv_lbl, value=_dv("alcohol_pct"), placeholder="45")
+                    with c2:
+                        proof = st.text_input("Proof", value=_dv("proof"), placeholder="90")
+                else:
+                    alcohol_pct = st.text_input(_abv_lbl, value=_dv("alcohol_pct"), placeholder="45")
+                    proof = ""
                 net_contents_ml = st.text_input("Net contents", value=_dv("net_contents_ml"), placeholder="e.g. 750 mL")
                 bottler_name = st.text_input("Bottler / Producer", value=_dv("bottler_name"), placeholder="ABC Distillery")
                 c3, c4 = st.columns(2)
@@ -338,6 +351,8 @@ def _single_label_screen():
                     bottler_state = st.text_input("State", value=_dv("bottler_state"), placeholder="MD")
                 imported = st.checkbox("Imported product", value=_form_fill.get("imported", False))
                 country_of_origin = st.text_input("Country of origin", value=_dv("country_of_origin"))
+                wood_treatment = age_statement = neutral_spirits = aspartame = False
+                appellation_required = varietal_required = False
                 with st.expander("Conditional statements"):
                     sc1, sc2 = st.columns(2)
                     with sc1:
@@ -345,12 +360,13 @@ def _single_label_screen():
                         fd_c_yellow_5 = st.checkbox("FD&C Yellow No. 5")
                         carmine = st.checkbox("Cochineal / Carmine")
                     with sc2:
-                        wood_treatment = st.checkbox("Wood treatment")
-                        age_statement = st.checkbox("Age statement")
-                        neutral_spirits = st.checkbox("Neutral spirits %")
-                        aspartame = st.checkbox("Aspartame")
-                    appellation_required = varietal_required = False
-                    if beverage_type == "Wine":
+                        if _prev_bev == "Distilled Spirits":
+                            wood_treatment = st.checkbox("Wood treatment")
+                            age_statement = st.checkbox("Age statement")
+                            neutral_spirits = st.checkbox("Neutral spirits %")
+                        if _prev_bev == "Beer / Malt Beverage":
+                            aspartame = st.checkbox("Aspartame")
+                    if _prev_bev == "Wine":
                         appellation_required = st.checkbox("Appellation of origin")
                         varietal_required = st.checkbox("Varietal designation")
                 submitted = st.form_submit_button("Check label", type="primary", width="stretch")
@@ -823,6 +839,7 @@ def _batch_screen():
                     if "batch_selected_id" in st.session_state:
                         del st.session_state["batch_selected_id"]
                     st.success(f"Processed {len(results)} labels.")
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Batch failed: {e}")
 

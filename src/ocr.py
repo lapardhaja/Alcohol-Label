@@ -205,7 +205,7 @@ def _split_line_by_gaps(data: Any, indices: list[int]) -> list[dict[str, Any]]:
     median_gap = float(np.median(gaps)) if gaps else 0
     gap_threshold = max(median_gap * 2.5, 40)
     # Absolute split: column gap (barcode, margin) — lower = split more aggressively
-    abs_split = 60  # px: split when gap > 60 (was 120; columns can be close)
+    abs_split = 40  # px: split when gap > 40 (Gov Warning | Serving Facts side-by-side)
     split_points = [0]
     for j, gap in enumerate(gaps):
         if gap > gap_threshold or gap > abs_split:

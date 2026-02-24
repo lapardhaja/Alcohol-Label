@@ -654,6 +654,25 @@ def _single_label_screen():
     st.caption("Upload a label and click **Check label**.")
 
 
+def _highlight_unmatched_words(extracted: str, required: str) -> str:
+    """Return HTML with words in extracted that are not in required highlighted in red."""
+    def _esc(s):
+        return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    req_upper = (required or "").upper()
+    req_words = frozenset(re.findall(r"\b[A-Za-z0-9]+\b", req_upper))
+    tokens = re.findall(r"\b[A-Za-z0-9]+\b|[^\w\s]|\s+", (extracted or ""))
+    parts = []
+    for t in tokens:
+        if re.match(r"^[A-Za-z0-9]+$", t):
+            if t.upper() not in req_words:
+                parts.append(f'<span style="color:red; background:#ffebee;">{_esc(t)}</span>')
+            else:
+                parts.append(_esc(t))
+        else:
+            parts.append(_esc(t))
+    return "".join(parts)
+
+
 def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
     """Build ordered matrix rows: Criteria, Application, Label, Status. Uses app_data for imported/beverage_type."""
     by_rule: dict[str, dict] = {r.get("rule_id", ""): r for r in rule_results if r.get("rule_id")}
@@ -705,13 +724,23 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
                 ext_val = app_val
             elif _extracted_is_generic_only(ext_val) and len(app_val) > len(ext_val):
                 ext_val = app_val
-        if len(app_val) > 80:
-            app_val = app_val[:77] + "..."
-        if len(ext_val) > 80:
-            ext_val = ext_val[:77] + "..."
+        # Gov warning: show full text, no truncation
+        is_gov_wording = "government warning" in criteria.lower() and "wording" in criteria.lower()
+        if not is_gov_wording:
+            if len(app_val) > 80:
+                app_val = app_val[:77] + "..."
+            if len(ext_val) > 80:
+                ext_val = ext_val[:77] + "..."
+        # Highlight unmatched words in Label (ext_val) vs Application (app_val) for gov warning
+        label_html = None
+        if is_gov_wording and app_val and ext_val:
+            label_html = _highlight_unmatched_words(ext_val, app_val)
         status = r.get("status", "pass")
         status_display = {"pass": "Pass", "needs_review": "Needs review", "fail": "Fail"}.get(status, "Needs review")
-        return {"Criteria": criteria, "Application": app_val or "—", "Label": ext_val or "—", "Status": status_display}
+        out = {"Criteria": criteria, "Application": app_val or "—", "Label": ext_val or "—", "Status": status_display}
+        if label_html is not None:
+            out["Label_html"] = label_html
+        return out
 
     rows: list[dict] = []
     for criteria, rids in [
@@ -784,7 +813,8 @@ def _render_validation_matrix(rows: list[dict]) -> None:
         html.append("<tr>")
         html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{_esc(str(r.get("Criteria", "")))}</td>')
         html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{_esc(str(r.get("Application", "")))}</td>')
-        html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{_esc(str(r.get("Label", "")))}</td>')
+        label_cell = r.get("Label_html") or _esc(str(r.get("Label", "")))
+        html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{label_cell}</td>')
         status = str(r.get("Status", ""))
         style = status_style.get(status, "")
         html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6; {style}">{_esc(status)}</td>')

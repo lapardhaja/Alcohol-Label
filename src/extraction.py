@@ -942,18 +942,22 @@ def _reconstruct_warning_from_reference(
 
 
 def _sanitize_warning_text(s: str) -> str:
-    """Remove barcode/OCR artifacts (|, }, —) and Serving Facts fragments that leak from adjacent column."""
+    """Remove barcode/OCR artifacts, Serving Facts fragments, and fix repetition from column merge."""
     if not s:
         return s
-    # Remove Serving Facts fragments: "| Serving Size 12 Fl Oz", "| Protein " (keep "machinery"), etc.
+    # Remove Serving Facts fragments
     s = re.sub(r"\|\s*(?:Serying|Serving)\s+Size\s+[\d.]+\s*(?:Fl\s*Oz|ml)?\s*", " ", s, flags=re.I)
-    s = re.sub(r"\|\s*Protein\s+", " ", s, flags=re.I)  # "| Protein machinery" -> "machinery"
+    s = re.sub(r"(?:Serying|Serving)\s+Size\s+[\d.]+\s*(?:Fl\s*Oz|ml)?\s*", " ", s, flags=re.I)  # without leading |
+    s = re.sub(r"\|\s*Protein\s+", " ", s, flags=re.I)
     s = re.sub(r"\|\s*Calories\s*[\d.]*\s*", " ", s, flags=re.I)
     s = re.sub(r"\|\s*Carbohydrate\s*[\d.]*g?\s*", " ", s, flags=re.I)
     s = re.sub(r"\|\s*Fat\s*[\d.]*g?\s*", " ", s, flags=re.I)
     s = re.sub(r"\|\s*", " ", s)
     s = re.sub(r"\}\s*", " ", s)
     s = re.sub(r"[—\-]{3,}", " ", s)  # long dashes
+    # Fix repetition from column merge
+    s = re.sub(r"\b(alcoholic)\s+\1\s+", r"\1 ", s, flags=re.I)  # "alcoholic alcoholic beverages"
+    s = re.sub(r"(machinery,\s*and\s+may\s+cause)\s*,\s*\1", r"\1", s, flags=re.I)  # "machinery, and may cause, machinery..."
     s = re.sub(r"\s+", " ", s).strip()
     return s
 

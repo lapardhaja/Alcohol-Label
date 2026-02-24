@@ -658,24 +658,24 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
         if len(full_text_norm) < 50:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "fail",
                             "message": "Warning text appears incomplete or incorrect.", "bbox_ref": bbox_warn,
-                            "extracted_value": display_extracted, "app_value": required_full[:80]})
+                            "extracted_value": display_extracted, "app_value": required_full})
         elif has_both_statements:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "pass",
                             "message": "Both (1) and (2) statements present; wording may vary (OCR).", "bbox_ref": bbox_warn,
-                            "extracted_value": display_extracted, "app_value": required_full[:80]})
+                            "extracted_value": display_extracted, "app_value": required_full})
         elif has_statement_1 or has_statement_2:
             missing = "statement (2)" if not has_statement_2 else "statement (1)"
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "needs_review",
                             "message": f"Only one statement found; both (1) and (2) required. Missing: {missing}.", "bbox_ref": bbox_warn,
-                            "extracted_value": display_extracted, "app_value": required_full[:80]})
+                            "extracted_value": display_extracted, "app_value": required_full})
         else:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "needs_review",
                             "message": "Warning text may not match required wording exactly.", "bbox_ref": bbox_warn,
-                            "extracted_value": display_extracted, "app_value": required_full[:80]})
+                            "extracted_value": display_extracted, "app_value": required_full})
     else:
         results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "pass",
                         "message": "Warning statement present and appears complete.", "bbox_ref": bbox_warn,
-                        "extracted_value": display_extracted, "app_value": required_full[:80] if required_full else "Required statement"})
+                        "extracted_value": display_extracted, "app_value": required_full if required_full else "Required statement"})
 
     return results
 

@@ -629,6 +629,9 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
         # Line-break hyphens
         s = re.sub(r"PREG-\s*NANCY", "PREGNANCY", s)
         s = re.sub(r"MACHIN-\s*ERY", "MACHINERY", s, flags=re.I)
+        # Compound OCR errors
+        s = re.sub(r"HEALTHIPROBLEMS", "HEALTH PROBLEMS", s, flags=re.I)
+        s = re.sub(r"HEALTHPROBLEMS", "HEALTH PROBLEMS", s, flags=re.I)
         # OCR artifacts: |) 7] etc
         s = re.sub(r"\|\s*\)", " ", s)
         s = re.sub(r"\d+\s*\]", " ", s)
@@ -649,9 +652,27 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     has_statement_1 = all(p in full_text_norm for p in key_phrases_1)
     has_statement_2 = all(p in full_text_norm for p in key_phrases_2)
     has_both_statements = has_statement_1 and has_statement_2
-    # Show full statement (no truncation) — TTB warning is ~260 chars
+
+    # Word-level: all required words present, no extra words, Surgeon General capitalized
+    def _warning_words(s: str) -> list[str]:
+        return re.findall(r"\b\w+\b", (s or "").upper())
+
+    from collections import Counter
+    req_words = _warning_words(required_norm)
+    ext_words = _warning_words(full_text_norm)
+    req_counts = Counter(req_words)
+    ext_counts = Counter(ext_words)
+    all_required_present = all(ext_counts.get(w, 0) >= c for w, c in req_counts.items())
+    extra_unique = [w for w in set(ext_words) if w not in req_counts]
+    no_extra = len(extra_unique) <= 2  # allow 1–2 OCR junk tokens (e.g. barcode)
+
+    # Surgeon General: S and G must be capital (Surgeon, SURGEON, General, GENERAL)
+    has_surgeon_general_caps = bool(
+        re.search(r"\bS(?:urgeon|URGEON)\b", full_text)
+        and re.search(r"\bG(?:eneral|ENERAL)\b", full_text)
+    )
+
     display_extracted = full_text if full_text else ""
-    # Pass if: full required is in label, OR label is correct prefix of required (label has start of warning)
     required_in_label = required_norm and required_norm in full_text_norm
     label_is_prefix = required_norm and full_stripped and required_norm.startswith(full_stripped) and len(full_stripped) >= 50
     if required_full and not required_in_label and not label_is_prefix:
@@ -659,9 +680,20 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "fail",
                             "message": "Warning text appears incomplete or incorrect.", "bbox_ref": bbox_warn,
                             "extracted_value": display_extracted, "app_value": required_full})
-        elif has_both_statements:
+        elif has_both_statements and all_required_present and no_extra and has_surgeon_general_caps:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "pass",
-                            "message": "Both (1) and (2) statements present; wording may vary (OCR).", "bbox_ref": bbox_warn,
+                            "message": "All required words present, no extra words, Surgeon General capitalized.", "bbox_ref": bbox_warn,
+                            "extracted_value": display_extracted, "app_value": required_full})
+        elif has_both_statements:
+            reasons = []
+            if not all_required_present:
+                reasons.append("missing required words")
+            if not no_extra:
+                reasons.append(f"extra words: {extra_unique[:5]}")
+            if not has_surgeon_general_caps:
+                reasons.append("Surgeon General not capitalized")
+            results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "needs_review",
+                            "message": f"Key phrases present but: {'; '.join(reasons)}.", "bbox_ref": bbox_warn,
                             "extracted_value": display_extracted, "app_value": required_full})
         elif has_statement_1 or has_statement_2:
             missing = "statement (2)" if not has_statement_2 else "statement (1)"

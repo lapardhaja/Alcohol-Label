@@ -330,9 +330,35 @@ _CLASS_KEYWORDS = (
 _CLASS_KEYWORD_SET = frozenset(k.upper() for k in _CLASS_KEYWORDS)
 # Strong keywords: block is clearly class/type, not brand (e.g. "Woodford Reserve" has only RESERVE)
 _STRONG_CLASS_WORDS = frozenset(
-    {"BOURBON", "WHISKEY", "WHISKY", "VODKA", "GIN", "RUM", "TEQUILA", "BRANDY", "COGNAC",
-     "WINE", "BEER", "ALE", "LAGER", "STOUT", "PORTER", "PILSNER", "SAKE", "MEAD",
-     "STRAIGHT", "BLENDED", "SINGLE", "MALT", "KENTUCKY", "TENNESSEE", "SCOTCH", "IRISH", "CANADIAN"}
+    {
+        "BOURBON",
+        "WHISKEY",
+        "WHISKY",
+        "VODKA",
+        "GIN",
+        "RUM",
+        "TEQUILA",
+        "BRANDY",
+        "COGNAC",
+        "WINE",
+        "BEER",
+        "ALE",
+        "LAGER",
+        "STOUT",
+        "PORTER",
+        "PILSNER",
+        "SAKE",
+        "MEAD",
+        "STRAIGHT",
+        "BLENDED",
+        "SINGLE",
+        "MALT",
+        "KENTUCKY",
+        "TENNESSEE",
+        "SCOTCH",
+        "IRISH",
+        "CANADIAN",
+    }
 )
 _CLASS_RE = re.compile(
     r"(?:"
@@ -535,15 +561,19 @@ def _brand_similarity_to_app(candidate: str, app_brand: str) -> float:
         return 1.0
     try:
         from rapidfuzz import fuzz
+
         ratio = fuzz.ratio(c, a) / 100.0
         token_sort = fuzz.token_sort_ratio(c, a) / 100.0
         return max(ratio, token_sort)
     except ImportError:
         import difflib
+
         return difflib.SequenceMatcher(None, c, a).ratio()
 
 
-def _extract_brand(blocks: list[dict], app_data: dict[str, Any] | None = None) -> dict[str, Any]:
+def _extract_brand(
+    blocks: list[dict], app_data: dict[str, Any] | None = None
+) -> dict[str, Any]:
     app_brand = (app_data or {}).get("brand_name") or ""
     candidates: list[tuple[str, dict]] = []  # (value, block)
     for i, b in enumerate(blocks):
@@ -573,7 +603,9 @@ def _extract_brand(blocks: list[dict], app_data: dict[str, Any] | None = None) -
 
     if candidates:
         if app_brand:
-            best = max(candidates, key=lambda c: _brand_similarity_to_app(c[0], app_brand))
+            best = max(
+                candidates, key=lambda c: _brand_similarity_to_app(c[0], app_brand)
+            )
         else:
             best = candidates[0]
         return {"value": best[0], "bbox": best[1].get("bbox")}
@@ -763,7 +795,12 @@ def _extract_abv_proof(blocks: list[dict]) -> dict[str, Any]:
 
     # Sanitize proof to numeric only (avoid "2% / 90.4 proof" stored as value)
     if out.get("proof", {}).get("value"):
-        pv = re.sub(r"^.*?(\d+(?:\.\d+)?)\s*(?:proof)?\s*$", r"\1", str(out["proof"]["value"]), flags=re.I).strip()
+        pv = re.sub(
+            r"^.*?(\d+(?:\.\d+)?)\s*(?:proof)?\s*$",
+            r"\1",
+            str(out["proof"]["value"]),
+            flags=re.I,
+        ).strip()
         if re.match(r"^\d+(?:\.\d+)?$", pv):
             out["proof"] = {**out["proof"], "value": pv}
 
@@ -836,14 +873,37 @@ def _format_net(m: re.Match, bbox: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 _WARNING_KEYWORDS = frozenset(
-    {"GOVERNMENT", "WARNING", "SURGEON", "GENERAL", "ACCORDING", "ALCOHOLIC",
-     "BEVERAGES", "PREGNANCY", "DEFECTS", "CONSUMPTION", "IMPAIRS", "MACHINERY", "HEALTH", "PROBLEMS"}
+    {
+        "GOVERNMENT",
+        "WARNING",
+        "SURGEON",
+        "GENERAL",
+        "ACCORDING",
+        "ALCOHOLIC",
+        "BEVERAGES",
+        "PREGNANCY",
+        "DEFECTS",
+        "CONSUMPTION",
+        "IMPAIRS",
+        "MACHINERY",
+        "HEALTH",
+        "PROBLEMS",
+    }
 )
 
-# Serving Facts / nutrition panel — exclude from government warning (often side-by-side on label)
+# Serving Facts / nutrition panel — domain markers (longer phrases first for matching)
 _SERVING_FACTS_MARKERS = (
-    "SERVING SIZE", "SERYING SIZE", "SERVINGS PER", "SERVING FACTS",
-    "AMOUNT PER SERVING", "CALORIES", "CARBOHYDRATE", "FAT", "PROTEIN",
+    "SERVINGS PER CONTAINER",
+    "AMOUNT PER SERVING",
+    "SERVING FACTS",
+    "SERVING SIZE",
+    "SERYING SIZE",
+    "SERVINGS PER",
+    "CALORIES",
+    "CARBOHYDRATE",
+    "ARBOHYDRATE",  # OCR variant
+    "FAT",
+    "PROTEIN",
 )
 
 
@@ -877,11 +937,28 @@ def _reconstruct_warning_from_reference(
     if not ref_norm:
         return {"value": "", "bbox": None}
 
-    # Collect blocks that look like warning content (contain any keyword)
-    # Exclude pure Serving Facts / nutrition panel (often side-by-side with gov warning)
+    # Spatial filter: find anchor (GOVERNMENT WARNING) and only include blocks in same x-region
+    # Prevents adjacent column (Serving Facts) from leaking — layout-based, not content-based
+    anchor_x_max = None
+    for b in blocks:
+        t = (b.get("text") or "").upper()
+        if "GOVERNMENT" in t and "WARNING" in t:
+            box = b.get("bbox") or [0, 0, 0, 0]
+            anchor_x_max = box[2] + max((box[2] - box[0]) * 0.5, 50)  # anchor right edge + margin
+            break
+
+    def _in_warning_region(b: dict) -> bool:
+        if anchor_x_max is None:
+            return True
+        box = b.get("bbox") or [0, 0, 0, 0]
+        return box[0] < anchor_x_max  # block starts left of anchor right edge + margin
+
+    # Exclude pure Serving Facts (content-based but generic — domain marker)
     def _is_pure_serving_facts(text: str) -> bool:
         u = (text or "").upper()
-        return any(m in u for m in _SERVING_FACTS_MARKERS) and not any(kw in u for kw in _WARNING_KEYWORDS)
+        return any(m in u for m in _SERVING_FACTS_MARKERS) and not any(
+            kw in u for kw in _WARNING_KEYWORDS
+        )
 
     candidates: list[dict] = []
     for b in blocks:
@@ -897,9 +974,13 @@ def _reconstruct_warning_from_reference(
             continue
         if _is_pure_serving_facts(t):
             continue
+        if not _in_warning_region(b):
+            continue
         if any(kw in upper for kw in _WARNING_KEYWORDS) or "GOVERNMENT" in upper:
             candidates.append(b)
-        elif _CLASS_RE.search(t) and any(w in upper for w in ("ALCOHOLIC", "BEVERAGES", "HEALTH", "PROBLEMS")):
+        elif _CLASS_RE.search(t) and any(
+            w in upper for w in ("ALCOHOLIC", "BEVERAGES", "HEALTH", "PROBLEMS")
+        ):
             candidates.append(b)
 
     if not candidates:
@@ -914,10 +995,21 @@ def _reconstruct_warning_from_reference(
 
     ordered = sorted(candidates, key=_sort_key)
 
-    # Build text: concatenate in order, skip overlap at boundaries (avoid "GOVERNMENT WARNING GOVERNMENT WARNING")
+    # Build text: concatenate in order, skip overlap at boundaries
+    # For mixed blocks, remove Serving Facts fragments (domain markers from config)
+    def _strip_nutrition_fragments(text: str) -> str:
+        for m in _SERVING_FACTS_MARKERS:
+            pat = m.replace(" ", r"\s+") + r"(?:\s+[\d.]+\s*(?:Fl\s*Oz|ml|g)?)?\s*"
+            text = re.sub(pat, " ", text, flags=re.I)
+        return text.strip()
+
     parts: list[str] = []
     for b in ordered:
         t = (b.get("text") or "").strip()
+        if not t:
+            continue
+        if any(m in t.upper() for m in _SERVING_FACTS_MARKERS):
+            t = _strip_nutrition_fragments(t)
         if not t:
             continue
         # If this block starts like the previous end, trim the duplicate prefix
@@ -929,7 +1021,12 @@ def _reconstruct_warning_from_reference(
                     t = t[overlap:].strip()
                     break
             # If block is short duplicate header, skip adding it again
-            if not t or (len(t) < 55 and "GOVERNMENT" in t.upper() and "WARNING" in t.upper() and parts):
+            if not t or (
+                len(t) < 55
+                and "GOVERNMENT" in t.upper()
+                and "WARNING" in t.upper()
+                and parts
+            ):
                 continue
         if t:
             parts.append(t)
@@ -942,27 +1039,28 @@ def _reconstruct_warning_from_reference(
 
 
 def _sanitize_warning_text(s: str) -> str:
-    """Remove barcode/OCR artifacts, Serving Facts fragments, and fix repetition from column merge."""
+    """Remove OCR artifacts and fix repetition. Generic, not phrase-specific."""
     if not s:
         return s
-    # Remove Serving Facts fragments
-    s = re.sub(r"\|\s*(?:Serying|Serving)\s+Size\s+[\d.]+\s*(?:Fl\s*Oz|ml)?\s*", " ", s, flags=re.I)
-    s = re.sub(r"(?:Serying|Serving)\s+Size\s+[\d.]+\s*(?:Fl\s*Oz|ml)?\s*", " ", s, flags=re.I)  # without leading |
-    s = re.sub(r"\|\s*Protein\s+", " ", s, flags=re.I)
-    s = re.sub(r"\|\s*Calories\s*[\d.]*\s*", " ", s, flags=re.I)
-    s = re.sub(r"\|\s*Carbohydrate\s*[\d.]*g?\s*", " ", s, flags=re.I)
-    s = re.sub(r"\|\s*Fat\s*[\d.]*g?\s*", " ", s, flags=re.I)
+    # Generic OCR/barcode artifacts
     s = re.sub(r"\|\s*", " ", s)
     s = re.sub(r"\}\s*", " ", s)
-    s = re.sub(r"[—\-]{3,}", " ", s)  # long dashes
-    # Fix repetition from column merge
-    s = re.sub(r"\b(alcoholic)\s+\1\s+", r"\1 ", s, flags=re.I)  # "alcoholic alcoholic beverages"
-    s = re.sub(r"(machinery,\s*and\s+may\s+cause)\s*,\s*\1", r"\1", s, flags=re.I)  # "machinery, and may cause, machinery..."
+    s = re.sub(r"[—\-]{3,}", " ", s)
+    # Generic repetition: remove consecutive duplicate phrases (1–5 words)
+    for _ in range(3):
+        prev = s
+        for n in range(5, 0, -1):
+            pat = r"(\b\w+(?:\s+\w+){" + str(n - 1) + r"})\s+\1\b"
+            s = re.sub(pat, r"\1", s, flags=re.I)
+        if s == prev:
+            break
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
 
-def _extract_warning(blocks: list[dict], reference_full: str | None = None) -> dict[str, Any]:
+def _extract_warning(
+    blocks: list[dict], reference_full: str | None = None
+) -> dict[str, Any]:
     if reference_full and " ".join(reference_full.split()).strip():
         return _reconstruct_warning_from_reference(blocks, reference_full)
 
@@ -1018,7 +1116,10 @@ def _extract_warning(blocks: list[dict], reference_full: str | None = None) -> d
         ):
             break
         if collected_blocks and "GOVERNMENT" in upper and "WARNING" in upper:
-            if (upper.startswith("GOVERNMENT WARNING") or re.match(r"^[^a-z]*GOVERNMENT\s+WARNING", upper)) and len(t) < 55:
+            if (
+                upper.startswith("GOVERNMENT WARNING")
+                or re.match(r"^[^a-z]*GOVERNMENT\s+WARNING", upper)
+            ) and len(t) < 55:
                 continue
         if len(t) < 2 and not t.isdigit():
             continue
@@ -1092,7 +1193,9 @@ def _extract_bottler(blocks: list[dict]) -> dict[str, Any]:
     # Fallback for spirits with DSP/distillery seal but no "Bottled by" (e.g. Woodford Reserve)
     for b in blocks:
         t = (b.get("text") or "").strip().upper()
-        if ("DSP" in t or "DISTILLERY" in t) and not ("GOVERNMENT" in t and "WARNING" in t):
+        if ("DSP" in t or "DISTILLERY" in t) and not (
+            "GOVERNMENT" in t and "WARNING" in t
+        ):
             # Use this block as bottler so rules can match; often "BRAND® DSP KY-NN DISTILLERY SERIES"
             val = (b.get("text") or "").strip()
             if len(val) >= 4:

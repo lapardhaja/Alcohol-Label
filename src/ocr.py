@@ -202,13 +202,14 @@ def _split_line_by_gaps(data: Any, indices: list[int]) -> list[dict[str, Any]]:
     if not gaps:
         return _build_block(data, indices)
 
+    # Adaptive threshold: split at column boundaries (large gaps) without splitting within-column spacing
     median_gap = float(np.median(gaps)) if gaps else 0
-    gap_threshold = max(median_gap * 2.5, 40)
-    # Absolute split: column gap (barcode, margin) — lower = split more aggressively
-    abs_split = 40  # px: split when gap > 40 (Gov Warning | Serving Facts side-by-side)
+    p75 = float(np.percentile(gaps, 75)) if gaps else 0
+    # Use 75th percentile (splits at ~25% largest gaps) or 2x median, with 25px floor
+    gap_threshold = max(p75, median_gap * 2, 25)
     split_points = [0]
     for j, gap in enumerate(gaps):
-        if gap > gap_threshold or gap > abs_split:
+        if gap > gap_threshold:
             split_points.append(j + 1)
     split_points.append(len(indices))
 

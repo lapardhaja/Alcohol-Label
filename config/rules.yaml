@@ -6,6 +6,8 @@ similarity:
   brand_class_review: 0.70
   token_containment_score: 0.95
   fuzzy_token_threshold: 0.85
+  # Single-token labels that are too generic to confirm a multi-token brand (e.g. "BREWERY" vs "Malt & Hop Brewery")
+  generic_brand_tokens: [brewery, distillery, winery, inc, co, company, llc, ale, beer, spirits, beverage, beverages]
 
 abv:
   pattern: '\d+(\.\d+)?\s*%\s*(Alc\.?/?Vol\.?|ALC/?VOL|Alcohol by volume)?'

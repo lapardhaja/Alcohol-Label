@@ -678,23 +678,31 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
         tokens = [t.strip(".,;:!?'\"()") for t in app_norm.split() if t.strip(".,;:!?'\"()")]
         return tokens and all(t in ext_lower for t in tokens)
 
+    _GENERIC_BRAND_TOKENS = frozenset(["brewery", "distillery", "winery", "inc", "co", "company", "llc", "ale", "beer", "spirits", "beverage", "beverages"])
+
+    def _extracted_is_generic_only(ext_val: str) -> bool:
+        """True if extracted value is a single generic token (e.g. BREWERY)."""
+        tokens = [t.strip(".,;:!?'\"()") for t in (ext_val or "").lower().split() if t.strip(".,;:!?'\"()")]
+        return len(tokens) == 1 and tokens[0] in _GENERIC_BRAND_TOKENS
+
     def row(criteria: str, *rule_ids: str) -> dict | None:
         r = pick(*rule_ids)
         if r is None:
             return None
         app_val = str(r.get("app_value") or "")
         ext_val = str(r.get("extracted_value") or "")
+        if r.get("prefer_app_display") and app_val:
+            ext_val = app_val
         # Heuristic: if extracted block is much larger but app value is a part of it, use app value for Label display
+        # Heuristic: if extracted is only a generic token (e.g. BREWERY) and app has more, show app value
         # Skip for government warning — we want to show the full extracted warning message
         rule_id = r.get("rule_id", "")
         skip_heuristic = "government warning" in criteria.lower() or "government warning" in rule_id.lower() or rule_id == "Exact warning wording"
-        if (
-            not skip_heuristic
-            and app_val
-            and len(ext_val) > len(app_val)
-            and _app_part_in_extracted(app_val, ext_val)
-        ):
-            ext_val = app_val
+        if not skip_heuristic and app_val:
+            if len(ext_val) > len(app_val) and _app_part_in_extracted(app_val, ext_val):
+                ext_val = app_val
+            elif _extracted_is_generic_only(ext_val) and len(app_val) > len(ext_val):
+                ext_val = app_val
         if len(app_val) > 80:
             app_val = app_val[:77] + "..."
         if len(ext_val) > 80:

@@ -144,9 +144,19 @@ def _smart_match(app_val: str, label_val: str, config: dict | None = None) -> tu
         return (0.95, "token_containment_ocr_normalized")
 
     # 3. Reverse containment: every label token appears in app tokens
+    # Don't pass when: (a) label has fewer tokens than app, or (b) label is only generic tokens (Brewery, Distillery, etc.)
+    generic = set((cfg.get("generic_brand_tokens") or ["brewery", "distillery", "winery", "inc", "co", "company", "llc", "ale", "beer", "spirits", "beverage", "beverages"]))
     if b_set <= a_set:
+        if len(b_tokens) < len(a_tokens):
+            return (0.75, "reverse_containment_partial")
+        if len(b_tokens) == 1 and b_tokens[0] in generic:
+            return (0.75, "reverse_containment_generic")
         return (0.90, "reverse_containment")
     if b_set_ocr and a_set_ocr and b_set_ocr <= a_set_ocr:
+        if len(b_tokens) < len(a_tokens):
+            return (0.75, "reverse_containment_partial_ocr")
+        if len(b_tokens) == 1 and b_tokens[0] in generic:
+            return (0.75, "reverse_containment_generic_ocr")
         return (0.90, "reverse_containment_ocr_normalized")
 
     # 4. Substring containment
@@ -185,6 +195,55 @@ def _tokens_found_in_text(app_val: str, full_text: str) -> bool:
         return False
     text_lower = full_text.lower()
     return all(t in text_lower for t in a_tokens)
+
+
+def _token_found_in_text(token: str, text_lower: str, text_words: list[str], fuzzy_thresh: float = 0.80) -> bool:
+    """
+    Check if token appears in OCR text, allowing for distortions.
+    Tries: exact substring, OCR-normalized word match, fuzzy word match.
+    """
+    if token in text_lower:
+        return True
+    if token == "&":
+        return "and" in text_lower
+    token_norm = _normalize_ocr_for_text(token)
+    for w in text_words:
+        w_clean = w.strip(".,;:!?'\"()").lower()
+        if not w_clean or len(w_clean) < 2:
+            continue
+        if w_clean == token:
+            return True
+        if _normalize_ocr_for_text(w_clean) == token_norm:
+            return True
+        try:
+            from rapidfuzz import fuzz
+            if fuzz.ratio(token, w_clean) / 100.0 >= fuzzy_thresh:
+                return True
+            if fuzz.ratio(token_norm, _normalize_ocr_for_text(w_clean)) / 100.0 >= fuzzy_thresh:
+                return True
+        except ImportError:
+            import difflib
+            if difflib.SequenceMatcher(None, token, w_clean).ratio() >= fuzzy_thresh:
+                return True
+    return False
+
+
+def _app_tokens_in_full_text(app_val: str, full_text: str, fuzzy_thresh: float = 0.80) -> bool:
+    """
+    Check if all meaningful app tokens appear in full OCR text, allowing for OCR distortions.
+    Handles: exact match, &/and, OCR confusables (1/l, 0/O), fuzzy match (Mat≈Malt).
+    Used when extracted field is partial — verify app value is scattered/distorted on label.
+    """
+    tokens = _tokenize(app_val)
+    text_lower = full_text.lower()
+    text_words = text_lower.split()
+    meaningful = [t for t in tokens if len(t) > 1 or t.isalnum()]
+    if not meaningful:
+        return False
+    for t in meaningful:
+        if not _token_found_in_text(t, text_lower, text_words, fuzzy_thresh):
+            return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +361,7 @@ def _rules_identity(extracted: dict, app_data: dict, config: dict) -> list[dict]
     brand_app = _norm(app_data.get("brand_name", ""))
     brand_label = _norm(extracted.get("brand_name", {}).get("value", ""))
     bbox_brand = extracted.get("brand_name", {}).get("bbox")
-
+    all_text = " ".join(b.get("text", "") for b in extracted.get("_all_blocks", []))
     if not brand_label:
         results.append({"rule_id": "Brand name present", "category": "Identity", "status": "fail",
                         "message": "Brand name not found on label.", "bbox_ref": bbox_brand,
@@ -318,16 +377,21 @@ def _rules_identity(extracted: dict, app_data: dict, config: dict) -> list[dict]
                             "message": f"Brand name matches ({reason}).", "bbox_ref": bbox_brand,
                             "extracted_value": brand_label, "app_value": brand_app})
         elif score >= review_thresh:
-            ocr_hint = " — likely OCR misread" if _is_ocr_confusable(brand_app, brand_label) else ""
-            results.append({"rule_id": "Brand name matches", "category": "Identity", "status": "needs_review",
-                            "message": f"Brand name similar but not exact ({reason}, {score:.0%}){ocr_hint}.", "bbox_ref": bbox_brand,
-                            "extracted_value": brand_label, "app_value": brand_app})
-        else:
-            all_text = " ".join(b.get("text", "") for b in extracted.get("_all_blocks", []))
-            if brand_app and _tokens_found_in_text(brand_app, all_text):
+            # Extracted brand partial (e.g. "BREWERY") — check if app tokens appear elsewhere on label (with fuzzy/OCR)
+            if brand_app and _app_tokens_in_full_text(brand_app, all_text):
+                results.append({"rule_id": "Brand name matches", "category": "Identity", "status": "pass",
+                                "message": "Brand name found on label (tokens in full text).", "bbox_ref": bbox_brand,
+                                "extracted_value": brand_label, "app_value": brand_app, "prefer_app_display": True})
+            else:
+                ocr_hint = " — likely OCR misread" if _is_ocr_confusable(brand_app, brand_label) else ""
                 results.append({"rule_id": "Brand name matches", "category": "Identity", "status": "needs_review",
-                                "message": "Brand name found elsewhere on label, not in primary position.", "bbox_ref": bbox_brand,
+                                "message": f"Brand name similar but not exact ({reason}, {score:.0%}){ocr_hint}.", "bbox_ref": bbox_brand,
                                 "extracted_value": brand_label, "app_value": brand_app})
+        else:
+            if brand_app and _app_tokens_in_full_text(brand_app, all_text):
+                results.append({"rule_id": "Brand name matches", "category": "Identity", "status": "pass",
+                                "message": "Brand name found on label (tokens in full text).", "bbox_ref": bbox_brand,
+                                "extracted_value": brand_label, "app_value": brand_app, "prefer_app_display": True})
             elif _is_ocr_confusable(brand_app, brand_label):
                 results.append({"rule_id": "Brand name matches", "category": "Identity", "status": "needs_review",
                                 "message": f"Brand name differs — likely OCR misread, verify manually ({score:.0%}).", "bbox_ref": bbox_brand,
@@ -356,16 +420,20 @@ def _rules_identity(extracted: dict, app_data: dict, config: dict) -> list[dict]
                             "message": f"Class/type matches ({reason}).", "bbox_ref": bbox_class,
                             "extracted_value": class_label, "app_value": class_app})
         elif score >= review_thresh:
-            ocr_hint = " — likely OCR misread" if _is_ocr_confusable(class_app, class_label) else ""
-            results.append({"rule_id": "Class/type matches", "category": "Identity", "status": "needs_review",
-                            "message": f"Class/type similar but not exact ({reason}, {score:.0%}){ocr_hint}.", "bbox_ref": bbox_class,
-                            "extracted_value": class_label, "app_value": class_app})
-        else:
-            all_text = " ".join(b.get("text", "") for b in extracted.get("_all_blocks", []))
-            if class_app and _tokens_found_in_text(class_app, all_text):
+            if class_app and _app_tokens_in_full_text(class_app, all_text):
+                results.append({"rule_id": "Class/type matches", "category": "Identity", "status": "pass",
+                                "message": "Class/type found on label (tokens in full text).", "bbox_ref": bbox_class,
+                                "extracted_value": class_label, "app_value": class_app, "prefer_app_display": True})
+            else:
+                ocr_hint = " — likely OCR misread" if _is_ocr_confusable(class_app, class_label) else ""
                 results.append({"rule_id": "Class/type matches", "category": "Identity", "status": "needs_review",
-                                "message": f"Class/type '{class_app}' found elsewhere on label, not in primary class position.", "bbox_ref": bbox_class,
+                                "message": f"Class/type similar but not exact ({reason}, {score:.0%}){ocr_hint}.", "bbox_ref": bbox_class,
                                 "extracted_value": class_label, "app_value": class_app})
+        else:
+            if class_app and _app_tokens_in_full_text(class_app, all_text):
+                results.append({"rule_id": "Class/type matches", "category": "Identity", "status": "pass",
+                                "message": "Class/type found on label (tokens in full text).", "bbox_ref": bbox_class,
+                                "extracted_value": class_label, "app_value": class_app, "prefer_app_display": True})
             elif _is_ocr_confusable(class_app, class_label):
                 results.append({"rule_id": "Class/type matches", "category": "Identity", "status": "needs_review",
                                 "message": f"Class/type differs — likely OCR misread, verify manually ({score:.0%}).", "bbox_ref": bbox_class,
@@ -406,7 +474,7 @@ def _rules_alcohol_contents(extracted: dict, app_data: dict, config: dict, bever
     elif app_pct:
         label_f = _parse_abv_float(label_pct)
         app_f = _parse_abv_float(app_pct)
-        if label_f is not None and app_f is not None and abs(label_f - app_f) <= 0.15:
+        if label_f is not None and app_f is not None and abs(label_f - app_f) <= 0.3:
             results.append({"rule_id": "Alcohol content matches", "category": "Alcohol & contents", "status": "pass",
                             "message": "Alcohol content present and matches.", "bbox_ref": bbox_pct,
                             "extracted_value": label_pct, "app_value": app_pct})
@@ -607,14 +675,14 @@ def _rules_origin(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     bottler_label = _norm(extracted.get("bottler", {}).get("value", ""))
     bottler_app = _norm(app_data.get("bottler_name", ""))
     bbox_bottler = extracted.get("bottler", {}).get("bbox")
+    all_text = " ".join(b.get("text", "") for b in extracted.get("_all_blocks", []))
 
     if not bottler_label:
         if bottler_app:
-            all_text = " ".join(b.get("text", "") for b in extracted.get("_all_blocks", []))
-            if _tokens_found_in_text(bottler_app, all_text):
-                results.append({"rule_id": "Bottler/producer statement", "category": "Origin", "status": "needs_review",
-                                "message": "Bottler name found in label text but not in standard bottler format.", "bbox_ref": bbox_bottler,
-                                "extracted_value": "", "app_value": bottler_app})
+            if _app_tokens_in_full_text(bottler_app, all_text):
+                results.append({"rule_id": "Bottler/producer statement", "category": "Origin", "status": "pass",
+                                "message": "Bottler/producer found on label (tokens in full text).", "bbox_ref": bbox_bottler,
+                                "extracted_value": "", "app_value": bottler_app, "prefer_app_display": True})
             else:
                 brand_label = _norm(extracted.get("brand_name", {}).get("value", ""))
                 score, _ = _smart_match(bottler_app, brand_label, config)
@@ -640,6 +708,10 @@ def _rules_origin(extracted: dict, app_data: dict, config: dict) -> list[dict]:
             results.append({"rule_id": "Bottler/producer statement", "category": "Origin", "status": "pass",
                             "message": f"Bottler/producer matches ({reason}).", "bbox_ref": bbox_bottler,
                             "extracted_value": bottler_label, "app_value": bottler_app})
+        elif bottler_app and _app_tokens_in_full_text(bottler_app, all_text):
+            results.append({"rule_id": "Bottler/producer statement", "category": "Origin", "status": "pass",
+                            "message": "Bottler/producer found on label (tokens in full text).", "bbox_ref": bbox_bottler,
+                            "extracted_value": bottler_label, "app_value": bottler_app, "prefer_app_display": True})
         elif score >= 0.60:
             results.append({"rule_id": "Bottler matches", "category": "Origin", "status": "needs_review",
                             "message": f"Bottler on label may not match application ({reason}, {score:.0%}).", "bbox_ref": bbox_bottler,

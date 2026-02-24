@@ -846,7 +846,7 @@ def _extract_country(blocks: list[dict]) -> dict[str, Any]:
         m = _COUNTRY_RE.search(b.get("text", ""))
         if m:
             country_val = next((g for g in m.groups() if g), m.group(0))
-            return {"value": m.group(0).strip(), "bbox": b.get("bbox")}
+            return {"value": country_val.strip(), "bbox": b.get("bbox")}
     for b in blocks:
         words = (b.get("text") or "").strip().lower()
         for country in _KNOWN_COUNTRIES:

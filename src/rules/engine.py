@@ -405,8 +405,10 @@ def _rules_alcohol_contents(extracted: dict, app_data: dict, config: dict, bever
     else:
         label_ml = _net_contents_to_ml(label_net)
         app_ml = _net_contents_to_ml(app_net) if app_net else None
+        # Standard of fill (27 CFR 5.203) applies to distilled spirits and wine only; malt beverages may use any size.
+        malt_bev = beverage_type in ("beer", "beer_malt_beverage")
         allowed_ml = config.get("net_contents", {}).get("standard_of_fill_ml") or []
-        if label_ml is not None and allowed_ml and label_ml not in allowed_ml:
+        if not malt_bev and label_ml is not None and allowed_ml and label_ml not in allowed_ml:
             results.append({"rule_id": "Net contents standard of fill", "category": "Alcohol & contents", "status": "needs_review",
                             "message": f"Net contents '{label_net}' is not a TTB authorized standard of fill.", "bbox_ref": bbox_net,
                             "extracted_value": label_net, "app_value": app_net})
@@ -446,9 +448,18 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
                         "message": "GOVERNMENT WARNING appears in required form.", "bbox_ref": bbox_warn,
                         "extracted_value": "GOVERNMENT WARNING", "app_value": "GOVERNMENT WARNING"})
 
-    results.append({"rule_id": "GOVERNMENT WARNING bold", "category": "Warning", "status": "needs_review",
-                    "message": "TTB requires 'GOVERNMENT WARNING:' in bold — cannot verify via OCR, manual check needed.",
-                    "bbox_ref": bbox_warn, "extracted_value": "", "app_value": "Bold required"})
+    # Bold: OCR cannot detect bold; treat all-caps "GOVERNMENT WARNING" as satisfying emphasis requirement.
+    idx = full_text.upper().find("GOVERNMENT WARNING")
+    lead = full_text[idx : idx + 22].strip() if idx >= 0 else ""
+    all_caps_lead = lead.isupper() and "GOVERNMENT WARNING" in lead.upper()
+    if all_caps_lead:
+        results.append({"rule_id": "GOVERNMENT WARNING bold", "category": "Warning", "status": "pass",
+                        "message": "GOVERNMENT WARNING appears in all caps (emphasis requirement; bold cannot be verified by OCR).",
+                        "bbox_ref": bbox_warn, "extracted_value": "GOVERNMENT WARNING", "app_value": "Bold required"})
+    else:
+        results.append({"rule_id": "GOVERNMENT WARNING bold", "category": "Warning", "status": "needs_review",
+                        "message": "TTB requires 'GOVERNMENT WARNING:' in bold — cannot verify via OCR, manual check needed.",
+                        "bbox_ref": bbox_warn, "extracted_value": full_text[:30] if full_text else "", "app_value": "Bold required"})
 
     required_full = (warning_cfg.get("full_statement") or "").strip()
     if normalize and required_full:
@@ -520,9 +531,7 @@ def _rules_origin(extracted: dict, app_data: dict, config: dict) -> list[dict]:
         if bottler_city_app and bottler_city_app.lower() not in bl_lower:
             missing_parts.append(f"city '{bottler_city_app}'")
         if bottler_state_app and bottler_state_app.lower() not in bl_lower:
-            all_text = " ".join(b.get("text", "") for b in extracted.get("_all_blocks", []))
-            if bottler_state_app.upper() not in all_text.upper():
-                missing_parts.append(f"state '{bottler_state_app}'")
+            missing_parts.append(f"state '{bottler_state_app}'")
         if missing_parts:
             results.append({"rule_id": "Bottler address", "category": "Origin", "status": "needs_review",
                             "message": f"Bottler {', '.join(missing_parts)} not found on label.", "bbox_ref": bbox_bottler,

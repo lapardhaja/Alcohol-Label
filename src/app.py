@@ -287,6 +287,7 @@ def _single_label_screen():
                         if _k == "create_beverage_type":
                             continue
                         ss.setdefault(_k, False if _k in _bool_keys else "")
+                    ss["preset_just_changed"] = False
 
                 def _bev_idx() -> int:
                     _bev = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])

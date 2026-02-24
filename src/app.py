@@ -468,7 +468,7 @@ def _single_label_screen():
             "image_bytes": upload.getvalue(),
             "result": {k: v for k, v in result.items() if k != "image"},
         }
-        _render_single_result(result, upload.getvalue(), approve_reject={"entry": entry, "selected_id": None})
+        _render_single_result(result, upload.getvalue(), approve_reject={"entry": entry, "selected_id": None}, app_data=app_data)
         return
     if submitted and upload is None and adding_new:
         st.warning("Please upload a label image.")
@@ -577,7 +577,7 @@ def _single_label_screen():
                 st.subheader(f"{entry.get('brand_name', '—')} — {entry.get('class_type', '')}")
                 result_for_display = dict(entry["result"])
                 result_for_display["image"] = None
-                _render_single_result(result_for_display, entry.get("image_bytes"), approve_reject={"entry": entry, "selected_id": selected_id})
+                _render_single_result(result_for_display, entry.get("image_bytes"), approve_reject={"entry": entry, "selected_id": selected_id}, app_data=entry.get("app_data", {}))
                 if st.button("Back to list", key="back_to_list"):
                     st.session_state["selected_app_id"] = None
                     st.session_state["selected_app_bucket"] = None
@@ -630,15 +630,98 @@ def _single_label_screen():
             "image_bytes": image_bytes,
             "result": {k: v for k, v in result.items() if k != "image"},
         }
-        _render_single_result(result, image_bytes, approve_reject={"entry": entry, "selected_id": None})
+        _render_single_result(result, image_bytes, approve_reject={"entry": entry, "selected_id": None}, app_data=app_data)
         return
 
     _render_brand_title("single")
     st.caption("Upload a label and click **Check label**.")
 
 
-def _render_single_result(result: dict, image_bytes: bytes | None, approve_reject: dict | None = None):
-    """Render label check result: status banner, caption, image, checklist. approve_reject: {"entry", "selected_id"} to show Approve/Decline."""
+def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
+    """Build ordered matrix rows: Criteria, Application, Label, Status. Uses app_data for imported/beverage_type."""
+    by_rule: dict[str, dict] = {r.get("rule_id", ""): r for r in rule_results if r.get("rule_id")}
+    bev = (app_data.get("beverage_type") or "spirits").lower().replace("/", "_").replace(" ", "_")
+    is_spirits = bev in ("spirits", "distilled_spirits")
+    imported = bool(app_data.get("imported"))
+
+    def pick(*rule_ids: str) -> dict | None:
+        for rid in rule_ids:
+            if rid in by_rule:
+                return by_rule[rid]
+        return None
+
+    def row(criteria: str, *rule_ids: str) -> dict | None:
+        r = pick(*rule_ids)
+        if r is None:
+            return None
+        app_val = str(r.get("app_value") or "")
+        ext_val = str(r.get("extracted_value") or "")
+        if len(app_val) > 80:
+            app_val = app_val[:77] + "..."
+        if len(ext_val) > 80:
+            ext_val = ext_val[:77] + "..."
+        status = r.get("status", "pass")
+        status_display = {"pass": "Pass", "needs_review": "Needs review", "fail": "Fail"}.get(status, "Needs review")
+        return {"Criteria": criteria, "Application": app_val or "—", "Label": ext_val or "—", "Status": status_display}
+
+    rows: list[dict] = []
+    for criteria, rids in [
+        ("Brand Name", ["Brand name matches", "Brand name present"]),
+        ("Type", ["Class/type matches", "Class/type present"]),
+        ("Government Warning (All Caps)", ["GOVERNMENT WARNING in caps"]),
+        ("Government Warning Wording", ["Exact warning wording", "Government warning present"]),
+        ("Bottler/Producer", ["Bottler matches", "Bottler/producer statement"]),
+        ("Bottler/Address", ["Bottler address"]),
+    ]:
+        r = row(criteria, *rids)
+        if r:
+            rows.append(r)
+
+    if imported:
+        r = row("Country of Origin", "Country of origin matches", "Country of origin")
+        if r:
+            rows.append(r)
+
+    for criteria, rids in [
+        ("Alcohol content (ABV)", ["Alcohol content matches", "Alcohol content", "Alcohol content present"]),
+        ("Proof", ["Proof/ABV consistency", "Proof matches", "Proof present", "Proof"]),
+        ("Net contents", ["Net contents matches", "Net contents standard of fill", "Net contents", "Net contents present"]),
+    ]:
+        if criteria == "Proof" and not is_spirits:
+            continue
+        r = row(criteria, *rids)
+        if r:
+            rows.append(r)
+
+    for rule_id, criteria in [
+        ("Sulfites statement", "Sulfites"),
+        ("FD&C Yellow No. 5", "FD&C Yellow No. 5"),
+        ("Cochineal/Carmine statement", "Cochineal/Carmine"),
+        ("Wood treatment", "Wood treatment"),
+        ("Age statement", "Age statement"),
+        ("Neutral spirits / commodity", "Neutral spirits"),
+        ("Aspartame statement", "Aspartame"),
+        ("Appellation of origin", "Appellation of origin"),
+        ("Varietal designation", "Varietal designation"),
+    ]:
+        r = row(criteria, rule_id)
+        if r:
+            rows.append(r)
+
+    return rows
+
+
+def _render_validation_matrix(rows: list[dict]) -> None:
+    """Render Criteria × Application × Label × Status table."""
+    if not rows:
+        st.info("No validation results to display.")
+        return
+    df = pd.DataFrame(rows)
+    st.dataframe(df, column_order=["Criteria", "Application", "Label", "Status"], hide_index=True, use_container_width=True)
+
+
+def _render_single_result(result: dict, image_bytes: bytes | None, approve_reject: dict | None = None, app_data: dict | None = None):
+    """Render label check result: status banner, caption, image, validation matrix, checklist. approve_reject: {"entry", "selected_id"} to show Approve/Decline."""
     overall = result.get("overall_status", "—")
     counts = result.get("counts", {})
 
@@ -699,6 +782,13 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
             f"Needs review: {counts.get('needs_review', 0)}  |  "
             f"Fail: {counts.get('fail', 0)}"
         )
+
+    # Validation matrix: Criteria, Application, Label, Status
+    resolved_app_data = app_data if app_data is not None else (approve_reject["entry"]["app_data"] if approve_reject else {})
+    matrix_rows = _build_validation_matrix(result.get("rule_results", []), resolved_app_data)
+    st.subheader("Validation")
+    _render_validation_matrix(matrix_rows)
+    st.divider()
 
     img = result.get("image")
     if img is None and image_bytes:
@@ -843,6 +933,7 @@ def _batch_screen():
                                 "class_type": app_data.get("class_type", ""),
                                 "result": None,
                                 "error": f"No image found for label_id '{label_id}'.",
+                                "app_data": app_data,
                             })
                             continue
                         try:
@@ -856,6 +947,7 @@ def _batch_screen():
                                 "class_type": app_data.get("class_type", ""),
                                 "result": r,
                                 "error": None,
+                                "app_data": app_data,
                             })
                         except Exception as e:
                             results.append({
@@ -866,6 +958,7 @@ def _batch_screen():
                                 "class_type": app_data.get("class_type", ""),
                                 "result": None,
                                 "error": str(e),
+                                "app_data": app_data,
                             })
                     st.session_state["batch_results"] = results
                     if "batch_selected_id" in st.session_state:
@@ -953,7 +1046,7 @@ def _batch_screen():
         st.subheader(f"Detail: {selected_id}")
         match = next((r for r in batch_results if r["label_id"] == selected_id), None)
         if match and match.get("result"):
-            _render_single_result(match["result"], None)
+            _render_single_result(match["result"], None, app_data=match.get("app_data") or {})
         elif match and match.get("error"):
             st.error(match["error"])
         if st.button("Back to batch table", key="batch_back"):

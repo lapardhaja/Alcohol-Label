@@ -52,8 +52,12 @@ def run_pipeline(image_input: Any, app_data: dict[str, Any]) -> dict[str, Any]:
     else:
         img = image_input.convert("RGB") if hasattr(image_input, "convert") else image_input
 
+    warning_reference = _load_warning_reference()
     try:
         ocr_blocks = run_ocr(img)
+        extracted = extract_fields(
+            ocr_blocks, app_data, warning_reference=warning_reference
+        )
     except OcrUnavailableError as e:
         return {
             "ocr_blocks": [],
@@ -64,9 +68,6 @@ def run_pipeline(image_input: Any, app_data: dict[str, Any]) -> dict[str, Any]:
             "image": img,
             "error": str(e),
         }
-
-    warning_reference = _load_warning_reference()
-    extracted = extract_fields(ocr_blocks, app_data, warning_reference=warning_reference)
     rule_results = run_rules(extracted, app_data)
     overall, counts = compute_overall_status(rule_results)
 

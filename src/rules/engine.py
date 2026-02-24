@@ -653,7 +653,7 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     has_statement_2 = all(p in full_text_norm for p in key_phrases_2)
     has_both_statements = has_statement_1 and has_statement_2
 
-    # Word-level: all required words present, no extra words, Surgeon General capitalized
+    # Word-level: all required words present, no extra words, critical phrases in order, Surgeon General capitalized
     def _warning_words(s: str) -> list[str]:
         return re.findall(r"\b\w+\b", (s or "").upper())
 
@@ -664,7 +664,30 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     ext_counts = Counter(ext_words)
     all_required_present = all(ext_counts.get(w, 0) >= c for w, c in req_counts.items())
     extra_unique = [w for w in set(ext_words) if w not in req_counts]
-    no_extra = len(extra_unique) <= 2  # allow 1–2 OCR junk tokens (e.g. barcode)
+    no_extra = len(extra_unique) == 0  # no extra words allowed
+
+    # Critical phrases must appear in order with at most 2 intervening tokens (catches "BIRTH — os LG ... DEFECTS")
+    def _phrase_gap_ok(text_norm: str, phrase: str, max_gap: int = 2) -> bool:
+        """True if phrase words appear consecutively or with at most max_gap tokens between."""
+        words = phrase.upper().split()
+        tokens = _warning_words(text_norm)
+        j = 0
+        for w in words:
+            found = False
+            for _ in range(max_gap + 1):
+                if j >= len(tokens):
+                    return False
+                if tokens[j] == w:
+                    j += 1
+                    found = True
+                    break
+                j += 1
+            if not found:
+                return False
+        return True
+
+    critical_phrases = ("BIRTH DEFECTS", "HEALTH PROBLEMS")
+    phrases_in_order = all(_phrase_gap_ok(full_text_norm, p) for p in critical_phrases)
 
     # Surgeon General: S and G must be capital (Surgeon, SURGEON, General, GENERAL)
     has_surgeon_general_caps = bool(
@@ -680,7 +703,7 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "fail",
                             "message": "Warning text appears incomplete or incorrect.", "bbox_ref": bbox_warn,
                             "extracted_value": display_extracted, "app_value": required_full})
-        elif has_both_statements and all_required_present and no_extra and has_surgeon_general_caps:
+        elif has_both_statements and all_required_present and no_extra and phrases_in_order and has_surgeon_general_caps:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "pass",
                             "message": "All required words present, no extra words, Surgeon General capitalized.", "bbox_ref": bbox_warn,
                             "extracted_value": display_extracted, "app_value": required_full})
@@ -690,6 +713,8 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
                 reasons.append("missing required words")
             if not no_extra:
                 reasons.append(f"extra words: {extra_unique[:5]}")
+            if not phrases_in_order:
+                reasons.append("critical phrases (BIRTH DEFECTS, HEALTH PROBLEMS) out of order or too far apart")
             if not has_surgeon_general_caps:
                 reasons.append("Surgeon General not capitalized")
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "needs_review",

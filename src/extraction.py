@@ -937,21 +937,24 @@ def _reconstruct_warning_from_reference(
     if not ref_norm:
         return {"value": "", "bbox": None}
 
-    # Spatial filter: find anchor (GOVERNMENT WARNING) and only include blocks in same x-region
-    # Prevents adjacent column (Serving Facts) from leaking — layout-based, not content-based
-    anchor_x_max = None
+    # Spatial filter: only include blocks in same x-region as GOVERNMENT WARNING
+    # Excludes blocks to the left (e.g. x=103 junk) or right (Serving Facts) of the warning column
+    anchor_x_min = anchor_x_max = None
     for b in blocks:
         t = (b.get("text") or "").upper()
         if "GOVERNMENT" in t and "WARNING" in t:
             box = b.get("bbox") or [0, 0, 0, 0]
-            anchor_x_max = box[2] + max((box[2] - box[0]) * 0.5, 50)  # anchor right edge + margin
+            # Block x-center must be within anchor column (tight: excludes left/right junk)
+            anchor_x_min = box[0] - 30
+            anchor_x_max = box[2] + 50
             break
 
     def _in_warning_region(b: dict) -> bool:
-        if anchor_x_max is None:
+        if anchor_x_min is None or anchor_x_max is None:
             return True
         box = b.get("bbox") or [0, 0, 0, 0]
-        return box[0] < anchor_x_max  # block starts left of anchor right edge + margin
+        x_center = (box[0] + box[2]) / 2
+        return anchor_x_min <= x_center <= anchor_x_max
 
     # Exclude pure Serving Facts (content-based but generic — domain marker)
     def _is_pure_serving_facts(text: str) -> bool:

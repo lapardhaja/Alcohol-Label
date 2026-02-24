@@ -254,7 +254,7 @@ def _single_label_screen():
                 "create_beverage_type", "create_brand_name", "create_class_type", "create_alcohol_pct", "create_proof",
                 "create_net_contents_ml", "create_bottler_name", "create_bottler_city", "create_bottler_state",
                 "create_imported", "create_country_of_origin", "create_sulfites", "create_fd_c_yellow_5", "create_carmine",
-                "create_wood_treatment", "create_age_statement", "create_neutral_spirits", "create_aspartame",
+                "create_wood_treatment", "create_age_statement", "create_age_years", "create_neutral_spirits", "create_aspartame",
                 "create_appellation_required", "create_varietal_required",
             )
 
@@ -289,6 +289,7 @@ def _single_label_screen():
                     ss.setdefault("create_bottler_state", _form_fill.get("bottler_state") or "")
                     ss.setdefault("create_imported", _form_fill.get("imported", False))
                     ss.setdefault("create_country_of_origin", _form_fill.get("country_of_origin") or "")
+                    ss.setdefault("create_age_years", _form_fill.get("age_years") or 0)
                     for _k in _bool_keys:
                         ss.setdefault(_k, False)
                     if ss.get("preset_just_changed"):
@@ -299,7 +300,10 @@ def _single_label_screen():
                     for _k in _create_keys:
                         if _k == "create_beverage_type":
                             continue
-                        ss.setdefault(_k, False if _k in _bool_keys else "")
+                        if _k == "create_age_years":
+                            ss.setdefault(_k, 0)
+                        else:
+                            ss.setdefault(_k, False if _k in _bool_keys else "")
                     ss["preset_just_changed"] = False
 
                 with st.expander("Application details", expanded=True):
@@ -336,6 +340,7 @@ def _single_label_screen():
                             if _cur_bev == "Distilled Spirits":
                                 st.checkbox("Wood treatment", key="create_wood_treatment")
                                 st.checkbox("Age statement", key="create_age_statement")
+                                st.number_input("Age (years)", min_value=0, max_value=100, value=0, step=1, key="create_age_years", help="For whisky: 4+ = optional per 27 CFR 5.40(a). Use 0 if unknown. For blends, use youngest.")
                                 st.checkbox("Neutral spirits %", key="create_neutral_spirits")
                             if _cur_bev == "Beer / Malt Beverage":
                                 st.checkbox("Aspartame", key="create_aspartame")
@@ -389,6 +394,7 @@ def _single_label_screen():
                 imported = st.checkbox("Imported product", value=_form_fill.get("imported", False))
                 country_of_origin = st.text_input("Country of origin", value=_dv("country_of_origin"))
                 wood_treatment = age_statement = neutral_spirits = aspartame = False
+                age_years = 0
                 appellation_required = varietal_required = False
                 with st.expander("Conditional statements"):
                     sc1, sc2 = st.columns(2)
@@ -400,6 +406,7 @@ def _single_label_screen():
                         if _prev_bev == "Distilled Spirits":
                             wood_treatment = st.checkbox("Wood treatment")
                             age_statement = st.checkbox("Age statement")
+                            age_years = st.number_input("Age (years)", min_value=0, max_value=100, value=int(_form_fill.get("age_years") or 0) if _form_fill else 0, step=1, key="sidebar_age_years")
                             neutral_spirits = st.checkbox("Neutral spirits %")
                         if _prev_bev == "Beer / Malt Beverage":
                             aspartame = st.checkbox("Aspartame")
@@ -436,6 +443,7 @@ def _single_label_screen():
             "carmine_required": carmine,
             "wood_treatment_required": wood_treatment,
             "age_statement_required": age_statement,
+            "age_years": age_years or 0,
             "neutral_spirits_required": neutral_spirits,
             "aspartame_required": aspartame,
             "appellation_required": appellation_required,
@@ -546,6 +554,7 @@ def _single_label_screen():
                 "carmine_required": ss.get("create_carmine", False),
                 "wood_treatment_required": ss.get("create_wood_treatment", False),
                 "age_statement_required": ss.get("create_age_statement", False),
+                "age_years": ss.get("create_age_years") or 0,
                 "neutral_spirits_required": ss.get("create_neutral_spirits", False),
                 "aspartame_required": ss.get("create_aspartame", False),
                 "appellation_required": ss.get("create_appellation_required", False),
@@ -1111,6 +1120,7 @@ def _normalize_csv_columns(df):
         "carmine_required": "carmine_required", "carmine required": "carmine_required",
         "wood_treatment_required": "wood_treatment_required", "wood treatment": "wood_treatment_required",
         "age_statement_required": "age_statement_required", "age statement": "age_statement_required",
+        "age_years": "age_years", "age years": "age_years", "youngest_age_years": "youngest_age_years",
         "neutral_spirits_required": "neutral_spirits_required", "neutral spirits": "neutral_spirits_required",
     }
     df = df.copy()
@@ -1120,6 +1130,17 @@ def _normalize_csv_columns(df):
     if new_cols:
         df = df.rename(columns=new_cols)
     return df
+
+
+def _parse_age_years(val):
+    """Parse age_years from CSV; return 0 if invalid/empty."""
+    if val is None or (isinstance(val, str) and not val.strip()):
+        return 0
+    try:
+        n = int(float(str(val).strip()))
+        return n if n > 0 else 0
+    except (ValueError, TypeError):
+        return 0
 
 
 def _row_to_app_data(row):
@@ -1160,6 +1181,7 @@ def _row_to_app_data(row):
         "carmine_required": b("carmine_required"),
         "wood_treatment_required": b("wood_treatment_required"),
         "age_statement_required": b("age_statement_required"),
+        "age_years": _parse_age_years(v("age_years") or v("youngest_age_years")),
         "neutral_spirits_required": b("neutral_spirits_required"),
     }
 

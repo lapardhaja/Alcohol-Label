@@ -695,7 +695,7 @@ def _rules_origin(extracted: dict, app_data: dict, config: dict) -> list[dict]:
 
 
 def _infer_conditionals_from_class(class_type: str, config: dict) -> set[str]:
-    """Return set of conditional keys auto-required by spirit class (e.g. age_statement)."""
+    """Return set of conditional keys auto-required by spirit class (e.g. state_of_distillation)."""
     if not class_type:
         return set()
     ct_lower = class_type.lower()
@@ -705,6 +705,42 @@ def _infer_conditionals_from_class(class_type: str, config: dict) -> set[str]:
             if kw.lower() in ct_lower:
                 required.update(_rule_group.get("require", []))
     return required
+
+
+def _is_whisky(class_type: str) -> bool:
+    """True if class_type indicates whisky (27 CFR 5.40(a) applies)."""
+    if not class_type:
+        return False
+    ct = class_type.lower()
+    return "whiskey" in ct or "whisky" in ct
+
+
+def _parse_age_years_from_label(blocks_lower: str) -> int | None:
+    """Extract youngest age in years from label (e.g. '4 years', '12 year'). Returns None if not found."""
+    matches = list(re.finditer(r"\d+\s*years?\b", blocks_lower))
+    if not matches:
+        return None
+    ages = []
+    for m in matches:
+        num = re.match(r"\d+", m.group())
+        if num:
+            ages.append(int(num.group()))
+    return min(ages) if ages else None
+
+
+def _get_age_years(app_data: dict, blocks_lower: str) -> int | None:
+    """Age in years (youngest for blends). From app_data or parsed from label. 0 = unknown."""
+    # App data: age_years or youngest_age_years (for blends)
+    for key in ("youngest_age_years", "age_years"):
+        val = app_data.get(key)
+        if val is not None and val != "":
+            try:
+                n = int(float(str(val).strip()))
+                if n > 0:
+                    return n
+            except (ValueError, TypeError):
+                pass
+    return _parse_age_years_from_label(blocks_lower)
 
 
 def _rules_other(extracted: dict, app_data: dict, config: dict, beverage_type: str = "spirits") -> list[dict]:
@@ -749,7 +785,24 @@ def _rules_other(extracted: dict, app_data: dict, config: dict, beverage_type: s
                         "message": "Wood treatment statement found." if found else "Wood treatment statement required but not found.",
                         "bbox_ref": None, "extracted_value": "Found" if found else "", "app_value": "Required"})
 
-    _age_required = app_data.get("age_statement_required") or ("age_statement" in inferred)
+    # 27 CFR 5.40(a): Age statement required for whisky aged < 4 years; optional for 4+ years.
+    class_type = class_app or class_label
+    is_whisky = beverage_type in ("spirits", "distilled_spirits") and _is_whisky(class_type)
+    age_cfg = config.get("age_statement") or {}
+    threshold = age_cfg.get("whisky_age_threshold_years", 4)
+    age_years = _get_age_years(app_data, blocks_lower)
+
+    if is_whisky:
+        # 27 CFR 5.40(a): required if age < threshold or age unknown; optional if age >= threshold
+        _age_required = (
+            app_data.get("age_statement_required")
+            or age_years is None
+            or age_years < threshold
+        )
+    else:
+        # Non-whisky: only if explicitly required
+        _age_required = bool(app_data.get("age_statement_required"))
+
     if _age_required:
         # Word-boundary to avoid false positives (e.g. "cooperage", "percentage")
         aged_match = re.search(r"\baged\b", blocks_lower)
@@ -767,9 +820,12 @@ def _rules_other(extracted: dict, app_data: dict, config: dict, beverage_type: s
             snippet = blocks_lower[age_stmt_match.start() : age_stmt_match.end() + 20].strip()
         if snippet:
             snippet = snippet[:50] + ("..." if len(snippet) > 50 else "")
+        msg = "Age statement found." if found else "Age statement required but not found."
+        if is_whisky and age_years is None:
+            msg = msg + " (27 CFR 5.40(a): required for whisky aged < 4 years.)"
         results.append({"rule_id": "Age statement", "category": "Other",
                         "status": "pass" if found else "fail",
-                        "message": "Age statement found." if found else "Age statement required but not found.",
+                        "message": msg,
                         "bbox_ref": None, "extracted_value": snippet or ("Found" if found else ""), "app_value": "Required"})
 
     _neutral_required = app_data.get("neutral_spirits_required") or ("neutral_spirits" in inferred)

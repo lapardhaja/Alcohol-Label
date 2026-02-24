@@ -35,14 +35,16 @@ class TestInferConditionals:
         inferred = _infer_conditionals_from_class("Vodka", config)
         assert "neutral_spirits" in inferred
 
-    def test_straight_bourbon_requires_age_and_state(self, config):
+    def test_straight_bourbon_requires_state_not_age(self, config):
+        """27 CFR 5.40(a): age is now age-based, not class-based."""
         inferred = _infer_conditionals_from_class("Straight Bourbon Whiskey", config)
-        assert "age_statement" in inferred
+        assert "age_statement" not in inferred
         assert "state_of_distillation" in inferred
 
-    def test_tennessee_whiskey_requires_age_and_state(self, config):
+    def test_tennessee_whiskey_requires_state_not_age(self, config):
+        """27 CFR 5.40(a): age is now age-based, not class-based."""
         inferred = _infer_conditionals_from_class("Tennessee Whiskey", config)
-        assert "age_statement" in inferred
+        assert "age_statement" not in inferred
         assert "state_of_distillation" in inferred
 
     def test_bourbon_requires_state(self, config):
@@ -80,8 +82,8 @@ class TestClassDrivenRules:
         assert len(neutral_rules) >= 1
         assert any(r["status"] == "fail" for r in neutral_rules)
 
-    def test_straight_bourbon_age_auto_required(self):
-        """Straight Bourbon should auto-require age statement."""
+    def test_whisky_age_unknown_requires_age_statement(self):
+        """27 CFR 5.40(a): Whisky with unknown age (< 4) requires age statement."""
         extracted = _minimal_extracted("Straight Bourbon Whiskey")
         app_data = {"beverage_type": "spirits", "brand_name": "TestBrand",
                     "class_type": "Straight Bourbon Whiskey"}
@@ -90,8 +92,8 @@ class TestClassDrivenRules:
         assert len(age_rules) >= 1
         assert any(r["status"] == "fail" for r in age_rules)
 
-    def test_straight_bourbon_age_passes_when_present(self):
-        """Straight Bourbon with age statement on label should pass."""
+    def test_whisky_age_4_years_optional_passes(self):
+        """27 CFR 5.40(a): Whisky aged 4+ years - age statement optional; if present, passes."""
         extracted = _minimal_extracted("Straight Bourbon Whiskey")
         extracted["_all_blocks"] = [
             {"text": "Aged 4 years TestBrand Straight Bourbon Whiskey GOVERNMENT WARNING: (1) test Bottled by TestCo 750 mL 40%"}
@@ -100,7 +102,31 @@ class TestClassDrivenRules:
                     "class_type": "Straight Bourbon Whiskey"}
         results = run_rules(extracted, app_data)
         age_rules = [r for r in results if "age" in r["rule_id"].lower()]
-        assert any(r["status"] == "pass" for r in age_rules)
+        # With "4 years" on label, age is parsed; >= 4 so rule not required - no age rule, or pass if run
+        assert not any(r["status"] == "fail" for r in age_rules)
+
+    def test_whisky_age_3_years_requires_age_statement(self):
+        """27 CFR 5.40(a): Whisky aged < 4 years requires age statement."""
+        extracted = _minimal_extracted("Bourbon Whiskey")
+        extracted["_all_blocks"] = [
+            {"text": "TestBrand Bourbon Whiskey GOVERNMENT WARNING: (1) test Bottled by TestCo 750 mL 40%"}
+        ]
+        app_data = {"beverage_type": "spirits", "brand_name": "TestBrand",
+                    "class_type": "Bourbon Whiskey", "age_years": 3}
+        results = run_rules(extracted, app_data)
+        age_rules = [r for r in results if "age" in r["rule_id"].lower()]
+        assert len(age_rules) >= 1
+        assert any(r["status"] == "fail" for r in age_rules)
+
+    def test_whisky_age_4_app_data_optional(self):
+        """27 CFR 5.40(a): Whisky with age_years=4 in app_data - age statement optional."""
+        extracted = _minimal_extracted("Bourbon Whiskey")
+        app_data = {"beverage_type": "spirits", "brand_name": "TestBrand",
+                    "class_type": "Bourbon Whiskey", "age_years": 4}
+        results = run_rules(extracted, app_data)
+        age_rules = [r for r in results if "age" in r["rule_id"].lower()]
+        # age >= 4: not required, so no age rule should run (or pass)
+        assert not any(r["status"] == "fail" for r in age_rules)
 
     def test_ale_no_spirits_conditionals(self):
         """Beer (Ale) should not trigger spirits-only conditionals."""

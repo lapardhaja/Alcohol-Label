@@ -165,8 +165,13 @@ class_type_keywords:
   - Baijiu
   - Cachaca
 
+# 27 CFR 5.40(a): Age statement required for whisky aged < 4 years; optional for 4+ years.
+# Applies to any whisky, including blends (youngest in blend).
+age_statement:
+  whisky_age_threshold_years: 4
+
 # Spirit class → required conditionals (27 CFR Part 5).
-# The engine auto-requires these even if the user forgot to check them.
+# Note: age_statement for whisky is now age-based per 5.40(a), not class-based.
 spirit_class_rules:
   straight_whiskey:
     keywords:
@@ -177,13 +182,13 @@ spirit_class_rules:
       - "Straight Corn"
       - "Straight Whiskey"
       - "Straight Whisky"
-    require: [age_statement, state_of_distillation]
+    require: [state_of_distillation]
   bourbon:
     keywords: ["Bourbon"]
     require: [state_of_distillation]
   tennessee:
     keywords: ["Tennessee Whiskey", "Tennessee Whisky"]
-    require: [state_of_distillation, age_statement]
+    require: [state_of_distillation]
   neutral_spirits:
     keywords: ["Vodka", "Neutral Spirits", "Grain Spirits"]
     require: [neutral_spirits]

@@ -57,6 +57,14 @@ def _apply_spell_correction_to_warning(text: str, reference_words: set[str]) -> 
     return "".join(corrected)
 
 
+def _collapse_duplicate_warning_phrase(text: str) -> str:
+    """Collapse repeated WARNING: (e.g. GOVERNMENT WARNING: WARNING: -> GOVERNMENT WARNING:)."""
+    if not text:
+        return text
+    # (GOVERNMENT WARNING:|WARNING:) followed by redundant WARNING:
+    return re.sub(r"(GOVERNMENT WARNING:|WARNING:)\s*WARNING:", r"\1", text, flags=re.I)
+
+
 def _filter_suspicious_from_warning(text: str, suspicious: list[str]) -> str:
     """Remove suspicious (OCR garbage) tokens from warning text for display."""
     if not text or not suspicious:
@@ -64,7 +72,8 @@ def _filter_suspicious_from_warning(text: str, suspicious: list[str]) -> str:
     result = text
     for tok in suspicious:
         result = re.sub(rf"\b{re.escape(tok)}\b", "", result, flags=re.I)
-    return " ".join(result.split())
+    result = " ".join(result.split())
+    return _collapse_duplicate_warning_phrase(result)
 
 
 def _get_suspicious_warning_tokens(
@@ -741,34 +750,49 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     ref_words = set(req_words)
     filtered_text = _filter_suspicious_from_warning(full_text or "", suspicious) or full_text or ""
     display_extracted = _apply_spell_correction_to_warning(filtered_text, ref_words) or filtered_text
-    required_in_label = required_norm and required_norm in full_text_norm
-    label_is_prefix = required_norm and full_stripped and required_norm.startswith(full_stripped) and len(full_stripped) >= 50
+    display_extracted = _collapse_duplicate_warning_phrase(display_extracted or "")
+    # Use filtered text for pass/fail: OCR garbage (QZ, QB) shouldn't block pass when content matches
+    text_for_compare = _collapse_duplicate_warning_phrase(filtered_text or "") or full_text or ""
+    text_for_compare_norm = _normalize_warning_ocr(text_for_compare)
+    text_for_compare_stripped = text_for_compare_norm.strip()
+    ext_words_clean = _warning_words(text_for_compare_norm)
+    ext_counts_clean = Counter(ext_words_clean)
+    all_required_present_clean = all(ext_counts_clean.get(w, 0) >= c for w, c in req_counts.items())
+    extra_unique_clean = [w for w in set(ext_words_clean) if w not in req_counts]
+    no_extra_clean = len(extra_unique_clean) == 0
+    required_in_label = required_norm and required_norm in text_for_compare_norm
+    label_is_prefix = required_norm and text_for_compare_stripped and required_norm.startswith(text_for_compare_stripped) and len(text_for_compare_stripped) >= 50
+    has_statement_1_clean = all(p in text_for_compare_norm for p in key_phrases_1)
+    has_statement_2_clean = all(p in text_for_compare_norm for p in key_phrases_2)
+    has_both_statements_clean = has_statement_1_clean and has_statement_2_clean
+    phrases_in_order_clean = all(_phrase_gap_ok(text_for_compare_norm, p) for p in critical_phrases)
+
     if required_full and not required_in_label and not label_is_prefix:
-        if len(full_text_norm) < 50:
+        if len(text_for_compare_norm) < 50:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "fail",
                             "message": "Warning text appears incomplete or incorrect.", "bbox_ref": bbox_warn,
                             "extracted_value": display_extracted, "app_value": required_full})
-        elif has_both_statements and all_required_present and no_extra and phrases_in_order and has_surgeon_general_caps:
+        elif has_both_statements_clean and all_required_present_clean and no_extra_clean and phrases_in_order_clean and has_surgeon_general_caps:
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "pass",
                             "message": "All required words present, no extra words, Surgeon General capitalized.", "bbox_ref": bbox_warn,
                             "extracted_value": display_extracted, "app_value": required_full})
-        elif has_both_statements:
+        elif has_both_statements_clean:
             reasons = []
-            if not all_required_present:
+            if not all_required_present_clean:
                 reasons.append("missing required words")
-            if not no_extra:
-                reasons.append(f"extra words: {extra_unique[:5]}")
+            if not no_extra_clean:
+                reasons.append(f"extra words: {extra_unique_clean[:5]}")
             if suspicious:
                 reasons.append(f"suspicious tokens (likely OCR errors): {', '.join(suspicious[:5])}")
-            if not phrases_in_order:
+            if not phrases_in_order_clean:
                 reasons.append("critical phrases (BIRTH DEFECTS, HEALTH PROBLEMS) out of order or too far apart")
             if not has_surgeon_general_caps:
                 reasons.append("Surgeon General not capitalized")
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "needs_review",
                             "message": f"Key phrases present but: {'; '.join(reasons)}.", "bbox_ref": bbox_warn,
                             "extracted_value": display_extracted, "app_value": required_full})
-        elif has_statement_1 or has_statement_2:
-            missing = "statement (2)" if not has_statement_2 else "statement (1)"
+        elif has_statement_1_clean or has_statement_2_clean:
+            missing = "statement (2)" if not has_statement_2_clean else "statement (1)"
             results.append({"rule_id": "Exact warning wording", "category": "Warning", "status": "needs_review",
                             "message": f"Only one statement found; both (1) and (2) required. Missing: {missing}.", "bbox_ref": bbox_warn,
                             "extracted_value": display_extracted, "app_value": required_full})

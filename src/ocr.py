@@ -168,11 +168,17 @@ def _data_to_blocks(data: Any) -> list[dict[str, Any]]:
     return blocks
 
 
+_NUTRITION_SPLIT_WORDS = frozenset(
+    {"carbohydrate", "protein", "fat", "calories", "serving", "servings", "amount"}
+)
+
+
 def _split_line_by_gaps(data: Any, indices: list[int]) -> list[dict[str, Any]]:
     """
     Split a Tesseract line into multiple blocks when there are large horizontal
     gaps between words — prevents cross-panel merging (e.g. Gov Warning | Serving Facts).
     Words are sorted by x so gaps are computed left-to-right.
+    Also splits before nutrition keywords when there's any gap (column boundary).
     """
     if len(indices) <= 1:
         words = [data["text"][i].strip() for i in indices]
@@ -188,9 +194,11 @@ def _split_line_by_gaps(data: Any, indices: list[int]) -> list[dict[str, Any]]:
 
     word_ends = []
     word_starts = []
+    words = []
     for i in indices:
         word_starts.append(int(data["left"][i]))
         word_ends.append(int(data["left"][i]) + int(data["width"][i]))
+        words.append((data["text"][i] or "").strip().lower())
 
     gaps = []
     for j in range(1, len(indices)):
@@ -203,11 +211,13 @@ def _split_line_by_gaps(data: Any, indices: list[int]) -> list[dict[str, Any]]:
     # Adaptive threshold: split at column boundaries (large gaps) without splitting within-column spacing
     median_gap = float(np.median(gaps)) if gaps else 0
     p75 = float(np.percentile(gaps, 75)) if gaps else 0
-    # Use 75th percentile (splits at ~25% largest gaps) or 2x median, with 25px floor
-    gap_threshold = max(p75, median_gap * 2, 25)
+    gap_threshold = max(p75, median_gap * 2, 18)
     split_points = [0]
     for j, gap in enumerate(gaps):
-        if gap > gap_threshold:
+        # Split on large gap, or split before nutrition keyword when there's any gap (column merge)
+        w = words[j] if j < len(words) else ""
+        is_nutrition = any(n in w for n in _NUTRITION_SPLIT_WORDS)
+        if gap > gap_threshold or (is_nutrition and gap > 8):
             split_points.append(j + 1)
     split_points.append(len(indices))
 
@@ -325,3 +335,37 @@ def run_ocr(img: Image.Image) -> list[dict[str, Any]]:
     Returns list of {text, bbox, confidence} blocks.
     """
     return _run_tesseract_ocr(img)
+
+
+def run_ocr_debug(img: Image.Image):
+    """
+    Debug: returns (deduplicated_blocks, [(pass_name, blocks), ...]).
+    Use to inspect raw OCR outputs before dedup and trace combination issues.
+    """
+    try:
+        import pytesseract
+        from pytesseract import Output
+    except ImportError:
+        raise OcrUnavailableError("pytesseract not installed")
+
+    _ensure_tesseract_cmd()
+    original, sharpened, binary = _preprocess_for_tesseract(img)
+
+    def _run_pass(image: Image.Image | np.ndarray, psm: int) -> list[dict[str, Any]]:
+        arr = np.array(image) if isinstance(image, Image.Image) else image
+        try:
+            data = pytesseract.image_to_data(arr, output_type=Output.DICT, config=f"--psm {psm}")
+            return _data_to_blocks(data)
+        except Exception:
+            return []
+
+    by_pass: list[tuple[str, list[dict[str, Any]]]] = [
+        ("original_psm3", _run_pass(original, 3)),
+        ("sharpened_psm6", _run_pass(sharpened, 6)),
+        ("binary_psm6", _run_pass(binary, 6)),
+    ]
+    all_blocks = []
+    for _, blks in by_pass:
+        all_blocks.extend(blks)
+    deduped = _deduplicate_blocks(all_blocks)
+    return deduped, by_pass

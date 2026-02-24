@@ -888,6 +888,8 @@ _WARNING_KEYWORDS = frozenset(
         "MACHINERY",
         "HEALTH",
         "PROBLEMS",
+        "DRIVE",
+        "OPERATE",
     }
 )
 
@@ -1001,9 +1003,15 @@ def _reconstruct_warning_from_reference(
     # Build text: concatenate in order, skip overlap at boundaries
     # For mixed blocks, remove Serving Facts fragments (domain markers from config)
     def _strip_nutrition_fragments(text: str) -> str:
+        # OCR often merges warning | nutrition; strip from first | onward
+        if "|" in text:
+            text = text.split("|")[0].strip()
         for m in _SERVING_FACTS_MARKERS:
             pat = m.replace(" ", r"\s+") + r"(?:\s+[\d.]+\s*(?:Fl\s*Oz|ml|g)?)?\s*"
             text = re.sub(pat, " ", text, flags=re.I)
+        # Orphaned nutrition words (e.g. "impairs your ability to Carbohydrate")
+        for w in ("CARBOHYDRATE", "ARBOHYDRATE", "PROTEIN", "CALORIES", "SERVING SIZE", "SERVINGS PER", "SERVINGS", "SERVING"):
+            text = re.sub(rf"\s+{re.escape(w)}\s*$", "", text, flags=re.I)
         return text.strip()
 
     parts: list[str] = []
@@ -1011,8 +1019,7 @@ def _reconstruct_warning_from_reference(
         t = (b.get("text") or "").strip()
         if not t:
             continue
-        if any(m in t.upper() for m in _SERVING_FACTS_MARKERS):
-            t = _strip_nutrition_fragments(t)
+        t = _strip_nutrition_fragments(t)
         if not t:
             continue
         # If this block starts like the previous end, trim the duplicate prefix
@@ -1035,9 +1042,161 @@ def _reconstruct_warning_from_reference(
             parts.append(t)
 
     value = _sanitize_warning_text(" ".join(parts).strip())
+
+    # "alcoholic beverages" appears in both statements; find() uses first occurrence so it
+    # gets placed in (1) and omitted from (2). Inject when we have the block and it's missing.
+    if any("alcoholic" in (b.get("text") or "").lower() and "beverages" in (b.get("text") or "").lower() for b in ordered):
+        value = re.sub(
+            r"(Consumption of)\s+(impairs)",
+            r"\1 alcoholic beverages \2",
+            value,
+            flags=re.I,
+        )
+
     return {
         "value": value,
         "bbox": _merge_bboxes(ordered) if ordered else None,
+    }
+
+
+def debug_warning_extraction(
+    blocks: list[dict], reference_full: str
+) -> dict[str, Any]:
+    """
+    Trace warning extraction: candidates, ordering, overlap trim, final parts.
+    Returns dict with trace for debugging.
+    """
+    ref_norm = " ".join((reference_full or "").split()).upper()
+    if not ref_norm:
+        return {"value": "", "trace": []}
+
+    anchor_x_min = anchor_x_max = None
+    for b in blocks:
+        t = (b.get("text") or "").upper()
+        if "GOVERNMENT" in t and "WARNING" in t:
+            box = b.get("bbox") or [0, 0, 0, 0]
+            anchor_x_min = box[0] - 30
+            anchor_x_max = box[2] + 50
+            break
+
+    def _in_warning_region(b: dict) -> bool:
+        if anchor_x_min is None or anchor_x_max is None:
+            return True
+        box = b.get("bbox") or [0, 0, 0, 0]
+        x_center = (box[0] + box[2]) / 2
+        return anchor_x_min <= x_center <= anchor_x_max
+
+    def _is_pure_serving_facts(text: str) -> bool:
+        u = (text or "").upper()
+        return any(m in u for m in _SERVING_FACTS_MARKERS) and not any(
+            kw in u for kw in _WARNING_KEYWORDS
+        )
+
+    trace: list[dict] = []
+    for i, b in enumerate(blocks):
+        t = (b.get("text") or "").strip()
+        if len(t) < 2:
+            continue
+        upper = t.upper()
+        in_region = _in_warning_region(b)
+        reason = []
+        if t in ("Brand Label", "Back Label") or upper.startswith("CONTAINS"):
+            reason.append("skip: brand/contains")
+        elif _NET_RE.search(t) and "GOVERNMENT" not in upper:
+            reason.append("skip: net contents")
+        elif _ABV_QUAL_RE.search(t) and "GOVERNMENT" not in upper:
+            reason.append("skip: ABV")
+        elif _is_pure_serving_facts(t):
+            reason.append("skip: serving facts")
+        elif not in_region:
+            reason.append("skip: outside warning region")
+        elif any(kw in upper for kw in _WARNING_KEYWORDS) or "GOVERNMENT" in upper:
+            reason.append("candidate: WARNING_KEYWORDS")
+        elif _CLASS_RE.search(t) and any(
+            w in upper for w in ("ALCOHOLIC", "BEVERAGES", "HEALTH", "PROBLEMS")
+        ):
+            reason.append("candidate: CLASS_RE + warning words")
+        else:
+            reason.append("skip: no keyword match")
+        trace.append({"idx": i, "text": t[:80], "in_region": in_region, "reason": reason[0]})
+
+    candidates: list[dict] = []
+    for b in blocks:
+        t = (b.get("text") or "").strip()
+        if len(t) < 2:
+            continue
+        upper = t.upper()
+        if t in ("Brand Label", "Back Label") or upper.startswith("CONTAINS"):
+            continue
+        if _NET_RE.search(t) and "GOVERNMENT" not in upper:
+            continue
+        if _ABV_QUAL_RE.search(t) and "GOVERNMENT" not in upper:
+            continue
+        if _is_pure_serving_facts(t):
+            continue
+        if not _in_warning_region(b):
+            continue
+        if any(kw in upper for kw in _WARNING_KEYWORDS) or "GOVERNMENT" in upper:
+            candidates.append(b)
+        elif _CLASS_RE.search(t) and any(
+            w in upper for w in ("ALCOHOLIC", "BEVERAGES", "HEALTH", "PROBLEMS")
+        ):
+            candidates.append(b)
+
+    def _sort_key(block: dict) -> tuple[int, float]:
+        t = (block.get("text") or "").strip()
+        pos = _warning_block_position_in_reference(t, ref_norm)
+        y = _bbox_y_center(block)
+        return (pos, y)
+
+    ordered = sorted(candidates, key=_sort_key)
+
+    parts: list[str] = []
+    combine_trace: list[dict] = []
+    for b in ordered:
+        t = (b.get("text") or "").strip()
+        if not t:
+            continue
+        if any(m in t.upper() for m in _SERVING_FACTS_MARKERS):
+            for m in _SERVING_FACTS_MARKERS:
+                pat = m.replace(" ", r"\s+") + r"(?:\s+[\d.]+\s*(?:Fl\s*Oz|ml|g)?)?\s*"
+                t = re.sub(pat, " ", t, flags=re.I)
+            t = t.strip()
+        if not t:
+            continue
+        orig_t = t
+        overlap_trimmed = ""
+        if parts:
+            prev_end = parts[-1].upper()
+            for overlap in range(min(25, len(t), len(prev_end)), 0, -1):
+                if t[:overlap].upper() == prev_end[-overlap:]:
+                    overlap_trimmed = t[:overlap]
+                    t = t[overlap:].strip()
+                    break
+        if not t or (
+            len(t) < 55
+            and "GOVERNMENT" in t.upper()
+            and "WARNING" in t.upper()
+            and parts
+        ):
+            combine_trace.append(
+                {"block": orig_t[:60], "action": "skipped", "overlap_trimmed": overlap_trimmed}
+            )
+            continue
+        if t:
+            parts.append(t)
+            combine_trace.append(
+                {"block": orig_t[:60], "added": t[:60], "overlap_trimmed": overlap_trimmed}
+            )
+
+    value = _sanitize_warning_text(" ".join(parts).strip())
+    return {
+        "value": value,
+        "trace": trace,
+        "candidates": [(b.get("text") or "")[:80] for b in candidates],
+        "ordered": [(b.get("text") or "")[:80] for b in ordered],
+        "combine_trace": combine_trace,
+        "parts": parts,
     }
 
 

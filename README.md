@@ -6,6 +6,8 @@ TTB label compliance verification prototype. Upload a label image and applicatio
 
 **Full documentation:** [docs/APPROACH.md](docs/APPROACH.md) — approach, tools, assumptions, limitations.
 
+**Tutorial:** [Watch video](video/video.webm) — walkthrough of the app.
+
 ---
 
 ## Quick start

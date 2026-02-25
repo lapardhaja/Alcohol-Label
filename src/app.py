@@ -21,13 +21,13 @@ st.set_page_config(
     page_title="BottleProof — Computer Based Alcohol Label Validation",
     page_icon=str(_LOGO_PATH),
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown("""
 <style>
     .stApp { font-size: 1.05rem; }
-    [data-testid="stSidebar"] { font-size: 0.95rem; }
+    [data-testid="stSidebar"] { display: none !important; }
     .brand-bottleproof { color: #28a745; font-weight: 700; }
     .brand-proof { color: #fd7e14; font-weight: 700; }
     .brand-subtitle { font-size: 1.45rem; font-weight: 500; }
@@ -49,8 +49,45 @@ st.markdown("""
     ::-webkit-scrollbar { width: 14px; height: 14px; }
     ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 7px; }
     ::-webkit-scrollbar-track { background: #f1f1f1; }
+    .big-upload div[data-testid="stFileUploader"] { min-height: 180px; padding: 1.5rem; }
 </style>
 """, unsafe_allow_html=True)
+
+
+def _render_header():
+    """Render header row: logo, title, mode switch, reset. Returns selected mode."""
+    mode = st.session_state.get("mode_radio", "Single Labeling")
+    suffix = "Single Labeling" if mode == "Single Labeling" else "Batch Labeling"
+    logo_col, title_col, mode_col, reset_col = st.columns([0.5, 3, 1.5, 0.5])
+    with logo_col:
+        if _LOGO_PATH.exists():
+            st.image(str(_LOGO_PATH), width=60)
+    with title_col:
+        st.markdown(
+            f'<h1 style="margin-bottom: 0.25rem;">'
+            f'<span class="brand-bottleproof">Bottle</span><span class="brand-proof">Proof</span> — {suffix}'
+            f'</h1>'
+            f'<p class="brand-subtitle" style="margin-top: 0.25rem;">Computer Based Alcohol Label Validation</p>',
+            unsafe_allow_html=True,
+        )
+    with mode_col:
+        mode = st.radio(
+            "Mode",
+            ["Single Labeling", "Batch Labeling"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="mode_radio",
+        )
+    with reset_col:
+        if st.button("Reset", key="header_reset"):
+            if mode == "Single Labeling":
+                for key in ("last_single_result", "last_single_image_bytes", "last_single_app_data", "last_single_entry_id"):
+                    st.session_state.pop(key, None)
+            else:
+                for key in ("batch_results", "batch_selected_id", "batch_decisions"):
+                    st.session_state.pop(key, None)
+            st.rerun()
+    return mode
 
 
 def _render_brand_title(mode: str):
@@ -215,15 +252,7 @@ def _init_app_lists():
 
 
 def main():
-    with st.sidebar:
-        if _LOGO_PATH.exists():
-            st.image(str(_LOGO_PATH), width=180)
-        mode = st.radio(
-            "Mode",
-            ["Single Labeling", "Batch Labeling"],
-            horizontal=True,
-            label_visibility="collapsed",
-        )
+    mode = _render_header()
     if mode == "Single Labeling":
         _init_app_lists()
         _single_label_screen()
@@ -232,134 +261,135 @@ def main():
 
 
 def _single_label_screen():
-    with st.sidebar:
-        view_key = st.session_state.get("app_list_view", "create_new")
-        if view_key != "create_new":
-            if st.button("New label", key="sidebar_new_label"):
-                st.session_state["app_list_view"] = "create_new"
-                st.session_state["selected_app_id"] = None
-                st.session_state["selected_app_bucket"] = None
-                st.rerun()
-        if view_key == "create_new":
-            if st.button("Reset", key="single_reset", width="stretch"):
-                for key in ("last_single_result", "last_single_image_bytes", "last_single_app_data", "last_single_entry_id"):
-                    st.session_state.pop(key, None)
-                st.rerun()
+    view_key = st.session_state.get("app_list_view", "create_new")
+
+    if view_key != "create_new":
+        if st.button("New label", key="sidebar_new_label"):
+            st.session_state["app_list_view"] = "create_new"
+            st.session_state["selected_app_id"] = None
+            st.session_state["selected_app_bucket"] = None
+            st.rerun()
         st.divider()
 
-        _show_form = (view_key == "create_new") or st.session_state.get("selected_app_id")
-        if _show_form:
-            preset_names = ["New Application"] + list(_SAMPLE_PRESETS.keys())
-            _create_keys = (
-                "create_beverage_type", "create_brand_name", "create_class_type", "create_alcohol_pct", "create_proof",
-                "create_net_contents_ml", "create_bottler_name", "create_bottler_city", "create_bottler_state",
-                "create_imported", "create_country_of_origin", "create_sulfites", "create_fd_c_yellow_5", "create_carmine",
-                "create_wood_treatment", "create_age_statement", "create_age_years", "create_neutral_spirits", "create_aspartame",
-                "create_appellation_required", "create_varietal_required",
-            )
+    _show_form = (view_key == "create_new") or st.session_state.get("selected_app_id")
+    upload = None
+    submitted = False
+    beverage_type = brand = class_type = alcohol_pct = proof = ""
+    net_contents_ml = bottler_name = bottler_city = bottler_state = country_of_origin = ""
+    imported = False
+    sulfites = fd_c_yellow_5 = carmine = wood_treatment = age_statement = neutral_spirits = aspartame = False
+    age_years = 0
+    appellation_required = varietal_required = False
 
-            def _on_preset_change():
-                v = st.session_state.get("preset_select")
-                st.session_state["demo_fill"] = v if v and v != "New Application" else None
-                st.session_state["selected_app_id"] = None
-                st.session_state["selected_app_bucket"] = None
-                st.session_state["preset_just_changed"] = True
-                for k in _create_keys:
-                    st.session_state.pop(k, None)
+    if _show_form:
+        preset_names = ["New Application"] + list(_SAMPLE_PRESETS.keys())
+        _create_keys = (
+            "create_beverage_type", "create_brand_name", "create_class_type", "create_alcohol_pct", "create_proof",
+            "create_net_contents_ml", "create_bottler_name", "create_bottler_city", "create_bottler_state",
+            "create_imported", "create_country_of_origin", "create_sulfites", "create_fd_c_yellow_5", "create_carmine",
+            "create_wood_treatment", "create_age_statement", "create_age_years", "create_neutral_spirits", "create_aspartame",
+            "create_appellation_required", "create_varietal_required",
+        )
 
-            st.selectbox(
-                "Application presets",
-                preset_names,
-                key="preset_select",
-                on_change=_on_preset_change,
-            )
-            if view_key == "create_new":
-                _form_fill = _get_form_fill_from_session()
-                ss = st.session_state
-                _bool_keys = ("create_imported", "create_sulfites", "create_fd_c_yellow_5", "create_carmine", "create_wood_treatment", "create_age_statement", "create_neutral_spirits", "create_aspartame", "create_appellation_required", "create_varietal_required")
-                if _form_fill:
-                    ss.setdefault("create_beverage_type", _form_fill.get("beverage_type") or _BEVERAGE_TYPES[0])
-                    ss.setdefault("create_brand_name", _form_fill.get("brand_name") or "")
-                    ss.setdefault("create_class_type", _form_fill.get("class_type") or "")
-                    ss.setdefault("create_alcohol_pct", _form_fill.get("alcohol_pct") or "")
-                    ss.setdefault("create_proof", _form_fill.get("proof") or "")
-                    ss.setdefault("create_net_contents_ml", _form_fill.get("net_contents_ml") or "")
-                    ss.setdefault("create_bottler_name", _form_fill.get("bottler_name") or "")
-                    ss.setdefault("create_bottler_city", _form_fill.get("bottler_city") or "")
-                    ss.setdefault("create_bottler_state", _form_fill.get("bottler_state") or "")
-                    ss.setdefault("create_imported", _form_fill.get("imported", False))
-                    ss.setdefault("create_country_of_origin", _form_fill.get("country_of_origin") or "")
-                    ss.setdefault("create_age_years", _form_fill.get("age_years") or 0)
-                    for _k in _bool_keys:
-                        ss.setdefault(_k, False)
-                    if ss.get("preset_just_changed"):
-                        ss["create_details_last_saved"] = {k: ss.get(k) for k in _create_keys}
-                        ss["preset_just_changed"] = False
-                else:
-                    ss.setdefault("create_beverage_type", _BEVERAGE_TYPES[0])
-                    for _k in _create_keys:
-                        if _k == "create_beverage_type":
-                            continue
-                        if _k == "create_age_years":
-                            ss.setdefault(_k, 0)
-                        else:
-                            ss.setdefault(_k, False if _k in _bool_keys else "")
+        def _on_preset_change():
+            v = st.session_state.get("preset_select")
+            st.session_state["demo_fill"] = v if v and v != "New Application" else None
+            st.session_state["selected_app_id"] = None
+            st.session_state["selected_app_bucket"] = None
+            st.session_state["preset_just_changed"] = True
+            for k in _create_keys:
+                st.session_state.pop(k, None)
+
+        st.selectbox(
+            "Choose Application",
+            preset_names,
+            key="preset_select",
+            on_change=_on_preset_change,
+        )
+        if view_key == "create_new":
+            _form_fill = _get_form_fill_from_session()
+            ss = st.session_state
+            _bool_keys = ("create_imported", "create_sulfites", "create_fd_c_yellow_5", "create_carmine", "create_wood_treatment", "create_age_statement", "create_neutral_spirits", "create_aspartame", "create_appellation_required", "create_varietal_required")
+            if _form_fill:
+                ss.setdefault("create_beverage_type", _form_fill.get("beverage_type") or _BEVERAGE_TYPES[0])
+                ss.setdefault("create_brand_name", _form_fill.get("brand_name") or "")
+                ss.setdefault("create_class_type", _form_fill.get("class_type") or "")
+                ss.setdefault("create_alcohol_pct", _form_fill.get("alcohol_pct") or "")
+                ss.setdefault("create_proof", _form_fill.get("proof") or "")
+                ss.setdefault("create_net_contents_ml", _form_fill.get("net_contents_ml") or "")
+                ss.setdefault("create_bottler_name", _form_fill.get("bottler_name") or "")
+                ss.setdefault("create_bottler_city", _form_fill.get("bottler_city") or "")
+                ss.setdefault("create_bottler_state", _form_fill.get("bottler_state") or "")
+                ss.setdefault("create_imported", _form_fill.get("imported", False))
+                ss.setdefault("create_country_of_origin", _form_fill.get("country_of_origin") or "")
+                ss.setdefault("create_age_years", _form_fill.get("age_years") or 0)
+                for _k in _bool_keys:
+                    ss.setdefault(_k, False)
+                if ss.get("preset_just_changed"):
+                    ss["create_details_last_saved"] = {k: ss.get(k) for k in _create_keys}
                     ss["preset_just_changed"] = False
-
-                with st.expander("Application details", expanded=True):
-                    # Don't pass index= when key is used: value is driven by session state only
-                    st.selectbox("Beverage type", _BEVERAGE_TYPES, key="create_beverage_type")
-                    st.text_input("Brand name", placeholder="e.g. ABC Distillery", key="create_brand_name")
-                    st.text_input("Class / type", placeholder="e.g. Straight Rye Whisky", key="create_class_type")
-                    _cur_bev = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
-                    _abv_label = "Alcohol % (optional)" if _cur_bev == "Beer / Malt Beverage" else "Alcohol %"
-                    if _cur_bev == "Distilled Spirits":
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            st.text_input(_abv_label, placeholder="45", key="create_alcohol_pct")
-                        with c2:
-                            st.text_input("Proof", placeholder="90", key="create_proof")
+            else:
+                ss.setdefault("create_beverage_type", _BEVERAGE_TYPES[0])
+                for _k in _create_keys:
+                    if _k == "create_beverage_type":
+                        continue
+                    if _k == "create_age_years":
+                        ss.setdefault(_k, 0)
                     else:
-                        st.text_input(_abv_label, placeholder="45", key="create_alcohol_pct")
-                    st.text_input("Net contents", placeholder="e.g. 750 mL, 1 QT, 12 FL OZ", key="create_net_contents_ml")
-                    st.text_input("Bottler / Producer", placeholder="ABC Distillery", key="create_bottler_name")
-                    c3, c4 = st.columns(2)
-                    with c3:
-                        st.text_input("City", placeholder="Frederick", key="create_bottler_city")
-                    with c4:
-                        st.text_input("State", placeholder="MD", key="create_bottler_state")
-                    st.checkbox("Imported product", key="create_imported")
-                    st.text_input("Country of origin", key="create_country_of_origin")
-                    with st.expander("Conditional statements"):
-                        sc1, sc2 = st.columns(2)
-                        with sc1:
-                            st.checkbox("Sulfites", key="create_sulfites")
-                            st.checkbox("FD&C Yellow No. 5", key="create_fd_c_yellow_5")
-                            st.checkbox("Cochineal / Carmine", key="create_carmine")
-                        with sc2:
-                            if _cur_bev == "Distilled Spirits":
-                                st.checkbox("Wood treatment", key="create_wood_treatment")
-                                st.checkbox("Age statement", key="create_age_statement")
-                                st.number_input("Age (years)", min_value=0, max_value=100, value=0, step=1, key="create_age_years", help="For whisky: 4+ = optional per 27 CFR 5.40(a). Use 0 if unknown. For blends, use youngest.")
-                                st.checkbox("Neutral spirits %", key="create_neutral_spirits")
-                            if _cur_bev == "Beer / Malt Beverage":
-                                st.checkbox("Aspartame", key="create_aspartame")
-                        if _cur_bev == "Wine":
-                            st.checkbox("Appellation of origin", key="create_appellation_required")
-                            st.checkbox("Varietal designation", key="create_varietal_required")
+                        ss.setdefault(_k, False if _k in _bool_keys else "")
+                ss["preset_just_changed"] = False
 
-                # Save changes: show when Application details differ from last saved
-                if view_key == "create_new":
-                    _current_snapshot = {k: ss.get(k) for k in _create_keys}
-                    if "create_details_last_saved" not in ss:
-                        ss["create_details_last_saved"] = _current_snapshot
-                    _last_saved = ss.get("create_details_last_saved") or {}
-                    _dirty = _current_snapshot != _last_saved
-                    if _dirty:
-                        if st.button("Save changes", key="sidebar_save_changes", type="primary"):
-                            ss["create_details_last_saved"] = {k: ss.get(k) for k in _create_keys}
-                            st.success("Changes saved.")
-                            st.rerun()
+            with st.expander("Application details", expanded=False):
+                st.selectbox("Beverage type", _BEVERAGE_TYPES, key="create_beverage_type")
+                st.text_input("Brand name", placeholder="e.g. ABC Distillery", key="create_brand_name")
+                st.text_input("Class / type", placeholder="e.g. Straight Rye Whisky", key="create_class_type")
+                _cur_bev = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
+                _abv_label = "Alcohol % (optional)" if _cur_bev == "Beer / Malt Beverage" else "Alcohol %"
+                if _cur_bev == "Distilled Spirits":
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.text_input(_abv_label, placeholder="45", key="create_alcohol_pct")
+                    with c2:
+                        st.text_input("Proof", placeholder="90", key="create_proof")
+                else:
+                    st.text_input(_abv_label, placeholder="45", key="create_alcohol_pct")
+                st.text_input("Net contents", placeholder="e.g. 750 mL, 1 QT, 12 FL OZ", key="create_net_contents_ml")
+                st.text_input("Bottler / Producer", placeholder="ABC Distillery", key="create_bottler_name")
+                c3, c4 = st.columns(2)
+                with c3:
+                    st.text_input("City", placeholder="Frederick", key="create_bottler_city")
+                with c4:
+                    st.text_input("State", placeholder="MD", key="create_bottler_state")
+                st.checkbox("Imported product", key="create_imported")
+                st.text_input("Country of origin", key="create_country_of_origin")
+                with st.expander("Conditional statements"):
+                    sc1, sc2 = st.columns(2)
+                    with sc1:
+                        st.checkbox("Sulfites", key="create_sulfites")
+                        st.checkbox("FD&C Yellow No. 5", key="create_fd_c_yellow_5")
+                        st.checkbox("Cochineal / Carmine", key="create_carmine")
+                    with sc2:
+                        if _cur_bev == "Distilled Spirits":
+                            st.checkbox("Wood treatment", key="create_wood_treatment")
+                            st.checkbox("Age statement", key="create_age_statement")
+                            st.number_input("Age (years)", min_value=0, max_value=100, value=0, step=1, key="create_age_years", help="For whisky: 4+ = optional per 27 CFR 5.40(a). Use 0 if unknown. For blends, use youngest.")
+                            st.checkbox("Neutral spirits %", key="create_neutral_spirits")
+                        if _cur_bev == "Beer / Malt Beverage":
+                            st.checkbox("Aspartame", key="create_aspartame")
+                    if _cur_bev == "Wine":
+                        st.checkbox("Appellation of origin", key="create_appellation_required")
+                        st.checkbox("Varietal designation", key="create_varietal_required")
+
+            _current_snapshot = {k: ss.get(k) for k in _create_keys}
+            if "create_details_last_saved" not in ss:
+                ss["create_details_last_saved"] = _current_snapshot
+            _last_saved = ss.get("create_details_last_saved") or {}
+            _dirty = _current_snapshot != _last_saved
+            if _dirty:
+                if st.button("Save changes", key="sidebar_save_changes", type="primary"):
+                    ss["create_details_last_saved"] = {k: ss.get(k) for k in _create_keys}
+                    st.success("Changes saved.")
+                    st.rerun()
         if view_key != "create_new" and st.session_state.get("selected_app_id"):
             _form_fill = _get_form_fill_from_session()
             def _dv(key: str, default: str = "") -> str:
@@ -369,7 +399,7 @@ def _single_label_screen():
                 if _form_fill and _form_fill.get("beverage_type") in _BEVERAGE_TYPES:
                     return _BEVERAGE_TYPES.index(_form_fill["beverage_type"])
                 return 0
-            with st.form("sidebar_form"):
+            with st.form("main_form_selected"):
                 beverage_type = st.selectbox("Beverage type", _BEVERAGE_TYPES, index=_bev_idx())
                 brand = st.text_input("Brand name", value=_dv("brand_name"), placeholder="e.g. ABC Distillery")
                 class_type = st.text_input("Class / type", value=_dv("class_type"), placeholder="e.g. Straight Rye Whisky")
@@ -490,12 +520,10 @@ def _single_label_screen():
         st.warning("Please upload a label image.")
         return
 
-    # Create new: main area — title, large upload, preview, replace option, Check label
+    # Create new: main area — large upload, Check label
     if adding_new and "last_single_result" not in st.session_state:
-        _render_brand_title("single")
-
+        st.divider()
         with st.form("main_form", clear_on_submit=False):
-            # Large upload area (wider center column)
             _, center_col, _ = st.columns([0.5, 3, 0.5])
             with center_col:
                 upload = st.file_uploader(
@@ -534,7 +562,7 @@ def _single_label_screen():
                 submitted = st.form_submit_button("Check label", type="primary", width="stretch")
 
         if submitted and upload is not None:
-            # Read application details from sidebar (session state)
+            # Read application details from main area (session state)
             ss = st.session_state
             beverage_type = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
             app_data = {
@@ -650,7 +678,6 @@ def _single_label_screen():
         _render_single_result(result, image_bytes, approve_reject={"entry": entry, "selected_id": None}, app_data=app_data)
         return
 
-    _render_brand_title("single")
     st.caption("Upload a label and click **Check label**.")
 
 
@@ -981,18 +1008,15 @@ def _batch_screen():
     import zipfile
     from src.pipeline import run_pipeline
 
-    _render_brand_title("batch")
-
-    with st.sidebar:
-        if st.button("Reset", key="batch_reset", width="stretch"):
-            for key in ("batch_results", "batch_selected_id", "batch_decisions"):
-                st.session_state.pop(key, None)
-            st.rerun()
-        st.divider()
+    st.divider()
+    up_col1, up_col2, up_col3 = st.columns([1, 1, 1])
+    with up_col1:
         zip_upload = st.file_uploader("Upload ZIP of label images", type=["zip"], key="batch_zip")
+    with up_col2:
         csv_upload = st.file_uploader("Upload CSV (application data)", type=["csv"], key="batch_csv")
+    with up_col3:
         with st.container(key="batch_run_btn"):
-            run_batch = st.button("Run batch checks", key="batch_run", type="primary", width="stretch")
+            run_batch = st.button("Run batch checks", key="batch_run", type="primary")
 
     batch_results = st.session_state.get("batch_results", [])
     selected_id = st.session_state.get("batch_selected_id")

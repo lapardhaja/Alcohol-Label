@@ -2,6 +2,7 @@
 BottleProof — Computer Based Alcohol Label Validation.
 Modes: Single Labeling | Batch Labeling.
 """
+
 import io
 import re
 import sys
@@ -24,14 +25,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-st.markdown("""
+st.markdown(
+    """
 <style>
     .stApp { font-size: 1.05rem; }
     [data-testid="stSidebar"] { display: none !important; }
     .brand-bottleproof { color: #28a745; font-weight: 700; }
     .brand-proof { color: #fd7e14; font-weight: 700; }
-    .brand-subtitle { font-size: 1.45rem; font-weight: 500; }
-    .st-key-batch_run_btn button { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; }
+    .brand-subtitle { font-size: 1.45rem; font-weight: 900; }
+    .st-key-batch_run_btn button {
+        background-color: #28a745 !important; border-color: #28a745 !important; color: white !important;
+        font-size: 1.5rem !important; padding: 1rem 5rem !important; width: 100% !important;
+    }
     .status-banner {
         padding: 1rem 1.5rem;
         border-radius: 0.5rem;
@@ -51,42 +56,55 @@ st.markdown("""
     ::-webkit-scrollbar-track { background: #f1f1f1; }
     .big-upload div[data-testid="stFileUploader"] { min-height: 180px; padding: 1.5rem; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 def _render_header():
     """Render header row: logo, title, mode switch, reset. Returns selected mode."""
     mode = st.session_state.get("mode_radio", "Single Labeling")
     suffix = "Single Labeling" if mode == "Single Labeling" else "Batch Labeling"
-    logo_col, title_col, mode_col, reset_col = st.columns([0.5, 3, 1.5, 0.5])
+    logo_col, title_col, mode_reset_col = st.columns([0.25, 3, 1])
     with logo_col:
         if _LOGO_PATH.exists():
-            st.image(str(_LOGO_PATH), width=60)
+            st.image(str(_LOGO_PATH), width=200)
     with title_col:
         st.markdown(
             f'<h1 style="margin-bottom: 0.25rem;">'
             f'<span class="brand-bottleproof">Bottle</span><span class="brand-proof">Proof</span> — {suffix}'
-            f'</h1>'
+            f"</h1>"
             f'<p class="brand-subtitle" style="margin-top: 0.25rem;">Computer Based Alcohol Label Validation</p>',
             unsafe_allow_html=True,
         )
-    with mode_col:
-        mode = st.radio(
-            "Mode",
-            ["Single Labeling", "Batch Labeling"],
-            horizontal=True,
-            label_visibility="collapsed",
-            key="mode_radio",
-        )
-    with reset_col:
-        if st.button("Reset", key="header_reset"):
-            if mode == "Single Labeling":
-                for key in ("last_single_result", "last_single_image_bytes", "last_single_app_data", "last_single_entry_id"):
-                    st.session_state.pop(key, None)
-            else:
-                for key in ("batch_results", "batch_selected_id", "batch_decisions"):
-                    st.session_state.pop(key, None)
-            st.rerun()
+    with mode_reset_col:
+        mode_sub, reset_sub = st.columns([1.2, 0.4])
+        with mode_sub:
+            mode = st.radio(
+                "Mode",
+                ["Single Labeling", "Batch Labeling"],
+                horizontal=True,
+                label_visibility="collapsed",
+                key="mode_radio",
+            )
+        with reset_sub:
+            if st.button("Reset", key="header_reset"):
+                if mode == "Single Labeling":
+                    for key in (
+                        "last_single_result",
+                        "last_single_image_bytes",
+                        "last_single_app_data",
+                        "last_single_entry_id",
+                    ):
+                        st.session_state.pop(key, None)
+                else:
+                    for key in (
+                        "batch_results",
+                        "batch_selected_id",
+                        "batch_decisions",
+                    ):
+                        st.session_state.pop(key, None)
+                st.rerun()
     return mode
 
 
@@ -96,7 +114,7 @@ def _render_brand_title(mode: str):
     st.markdown(
         f'<h1 style="margin-bottom: 0.25rem;">'
         f'<span class="brand-bottleproof">Bottle</span><span class="brand-proof">Proof</span> — {suffix}'
-        f'</h1>'
+        f"</h1>"
         f'<p class="brand-subtitle" style="margin-top: 0.25rem;">Computer Based Alcohol Label Validation</p>',
         unsafe_allow_html=True,
     )
@@ -214,7 +232,11 @@ def _get_form_fill_from_session():
         if entry and entry.get("app_data"):
             ad = entry["app_data"]
             bev = ad.get("beverage_type", "spirits")
-            bev_display = {"spirits": "Distilled Spirits", "wine": "Wine", "beer": "Beer / Malt Beverage"}.get(bev, "Distilled Spirits")
+            bev_display = {
+                "spirits": "Distilled Spirits",
+                "wine": "Wine",
+                "beer": "Beer / Malt Beverage",
+            }.get(bev, "Distilled Spirits")
             return {
                 "brand_name": ad.get("brand_name", ""),
                 "class_type": ad.get("class_type", ""),
@@ -236,9 +258,12 @@ def _get_form_fill_from_session():
 
 def _init_app_lists():
     from src.storage import load_applications
+
     if "applications_under_review" not in st.session_state:
         data = load_applications()
-        st.session_state["applications_under_review"] = data["applications_under_review"]
+        st.session_state["applications_under_review"] = data[
+            "applications_under_review"
+        ]
         st.session_state["applications_approved"] = data["applications_approved"]
         st.session_state["applications_rejected"] = data["applications_rejected"]
     if "app_list_view" not in st.session_state:
@@ -275,20 +300,40 @@ def _single_label_screen():
     upload = None
     submitted = False
     beverage_type = brand = class_type = alcohol_pct = proof = ""
-    net_contents_ml = bottler_name = bottler_city = bottler_state = country_of_origin = ""
+    net_contents_ml = bottler_name = bottler_city = bottler_state = (
+        country_of_origin
+    ) = ""
     imported = False
-    sulfites = fd_c_yellow_5 = carmine = wood_treatment = age_statement = neutral_spirits = aspartame = False
+    sulfites = fd_c_yellow_5 = carmine = wood_treatment = age_statement = (
+        neutral_spirits
+    ) = aspartame = False
     age_years = 0
     appellation_required = varietal_required = False
 
     if _show_form:
         preset_names = ["New Application"] + list(_SAMPLE_PRESETS.keys())
         _create_keys = (
-            "create_beverage_type", "create_brand_name", "create_class_type", "create_alcohol_pct", "create_proof",
-            "create_net_contents_ml", "create_bottler_name", "create_bottler_city", "create_bottler_state",
-            "create_imported", "create_country_of_origin", "create_sulfites", "create_fd_c_yellow_5", "create_carmine",
-            "create_wood_treatment", "create_age_statement", "create_age_years", "create_neutral_spirits", "create_aspartame",
-            "create_appellation_required", "create_varietal_required",
+            "create_beverage_type",
+            "create_brand_name",
+            "create_class_type",
+            "create_alcohol_pct",
+            "create_proof",
+            "create_net_contents_ml",
+            "create_bottler_name",
+            "create_bottler_city",
+            "create_bottler_state",
+            "create_imported",
+            "create_country_of_origin",
+            "create_sulfites",
+            "create_fd_c_yellow_5",
+            "create_carmine",
+            "create_wood_treatment",
+            "create_age_statement",
+            "create_age_years",
+            "create_neutral_spirits",
+            "create_aspartame",
+            "create_appellation_required",
+            "create_varietal_required",
         )
 
         def _on_preset_change():
@@ -300,33 +345,65 @@ def _single_label_screen():
             for k in _create_keys:
                 st.session_state.pop(k, None)
 
+        st.markdown(
+            '<p style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.25rem;">Choose Application</p>',
+            unsafe_allow_html=True,
+        )
         st.selectbox(
             "Choose Application",
             preset_names,
             key="preset_select",
             on_change=_on_preset_change,
+            label_visibility="collapsed",
         )
         if view_key == "create_new":
             _form_fill = _get_form_fill_from_session()
             ss = st.session_state
-            _bool_keys = ("create_imported", "create_sulfites", "create_fd_c_yellow_5", "create_carmine", "create_wood_treatment", "create_age_statement", "create_neutral_spirits", "create_aspartame", "create_appellation_required", "create_varietal_required")
+            _bool_keys = (
+                "create_imported",
+                "create_sulfites",
+                "create_fd_c_yellow_5",
+                "create_carmine",
+                "create_wood_treatment",
+                "create_age_statement",
+                "create_neutral_spirits",
+                "create_aspartame",
+                "create_appellation_required",
+                "create_varietal_required",
+            )
             if _form_fill:
-                ss.setdefault("create_beverage_type", _form_fill.get("beverage_type") or _BEVERAGE_TYPES[0])
+                ss.setdefault(
+                    "create_beverage_type",
+                    _form_fill.get("beverage_type") or _BEVERAGE_TYPES[0],
+                )
                 ss.setdefault("create_brand_name", _form_fill.get("brand_name") or "")
                 ss.setdefault("create_class_type", _form_fill.get("class_type") or "")
                 ss.setdefault("create_alcohol_pct", _form_fill.get("alcohol_pct") or "")
                 ss.setdefault("create_proof", _form_fill.get("proof") or "")
-                ss.setdefault("create_net_contents_ml", _form_fill.get("net_contents_ml") or "")
-                ss.setdefault("create_bottler_name", _form_fill.get("bottler_name") or "")
-                ss.setdefault("create_bottler_city", _form_fill.get("bottler_city") or "")
-                ss.setdefault("create_bottler_state", _form_fill.get("bottler_state") or "")
+                ss.setdefault(
+                    "create_net_contents_ml", _form_fill.get("net_contents_ml") or ""
+                )
+                ss.setdefault(
+                    "create_bottler_name", _form_fill.get("bottler_name") or ""
+                )
+                ss.setdefault(
+                    "create_bottler_city", _form_fill.get("bottler_city") or ""
+                )
+                ss.setdefault(
+                    "create_bottler_state", _form_fill.get("bottler_state") or ""
+                )
                 ss.setdefault("create_imported", _form_fill.get("imported", False))
-                ss.setdefault("create_country_of_origin", _form_fill.get("country_of_origin") or "")
+                ss.setdefault(
+                    "create_country_of_origin",
+                    _form_fill.get("country_of_origin") or "",
+                )
                 ss.setdefault("create_age_years", _form_fill.get("age_years") or 0)
                 for _k in _bool_keys:
                     ss.setdefault(_k, False)
                 if ss.get("preset_just_changed"):
-                    ss["create_details_last_saved"] = {k: ss.get(k) for k in _create_keys}
+                    ss["create_details_last_saved"] = {
+                        k: ss.get(k) for k in _create_keys
+                    }
                     ss["preset_just_changed"] = False
             else:
                 ss.setdefault("create_beverage_type", _BEVERAGE_TYPES[0])
@@ -340,24 +417,52 @@ def _single_label_screen():
                 ss["preset_just_changed"] = False
 
             with st.expander("Application details", expanded=False):
-                st.selectbox("Beverage type", _BEVERAGE_TYPES, key="create_beverage_type")
-                st.text_input("Brand name", placeholder="e.g. ABC Distillery", key="create_brand_name")
-                st.text_input("Class / type", placeholder="e.g. Straight Rye Whisky", key="create_class_type")
+                st.selectbox(
+                    "Beverage type", _BEVERAGE_TYPES, key="create_beverage_type"
+                )
+                st.text_input(
+                    "Brand name",
+                    placeholder="e.g. ABC Distillery",
+                    key="create_brand_name",
+                )
+                st.text_input(
+                    "Class / type",
+                    placeholder="e.g. Straight Rye Whisky",
+                    key="create_class_type",
+                )
                 _cur_bev = ss.get("create_beverage_type", _BEVERAGE_TYPES[0])
-                _abv_label = "Alcohol % (optional)" if _cur_bev == "Beer / Malt Beverage" else "Alcohol %"
+                _abv_label = (
+                    "Alcohol % (optional)"
+                    if _cur_bev == "Beer / Malt Beverage"
+                    else "Alcohol %"
+                )
                 if _cur_bev == "Distilled Spirits":
                     c1, c2 = st.columns(2)
                     with c1:
-                        st.text_input(_abv_label, placeholder="45", key="create_alcohol_pct")
+                        st.text_input(
+                            _abv_label, placeholder="45", key="create_alcohol_pct"
+                        )
                     with c2:
                         st.text_input("Proof", placeholder="90", key="create_proof")
                 else:
-                    st.text_input(_abv_label, placeholder="45", key="create_alcohol_pct")
-                st.text_input("Net contents", placeholder="e.g. 750 mL, 1 QT, 12 FL OZ", key="create_net_contents_ml")
-                st.text_input("Bottler / Producer", placeholder="ABC Distillery", key="create_bottler_name")
+                    st.text_input(
+                        _abv_label, placeholder="45", key="create_alcohol_pct"
+                    )
+                st.text_input(
+                    "Net contents",
+                    placeholder="e.g. 750 mL, 1 QT, 12 FL OZ",
+                    key="create_net_contents_ml",
+                )
+                st.text_input(
+                    "Bottler / Producer",
+                    placeholder="ABC Distillery",
+                    key="create_bottler_name",
+                )
                 c3, c4 = st.columns(2)
                 with c3:
-                    st.text_input("City", placeholder="Frederick", key="create_bottler_city")
+                    st.text_input(
+                        "City", placeholder="Frederick", key="create_bottler_city"
+                    )
                 with c4:
                     st.text_input("State", placeholder="MD", key="create_bottler_state")
                 st.checkbox("Imported product", key="create_imported")
@@ -372,13 +477,27 @@ def _single_label_screen():
                         if _cur_bev == "Distilled Spirits":
                             st.checkbox("Wood treatment", key="create_wood_treatment")
                             st.checkbox("Age statement", key="create_age_statement")
-                            st.number_input("Age (years)", min_value=0, max_value=100, value=0, step=1, key="create_age_years", help="For whisky: 4+ = optional per 27 CFR 5.40(a). Use 0 if unknown. For blends, use youngest.")
-                            st.checkbox("Neutral spirits %", key="create_neutral_spirits")
+                            st.number_input(
+                                "Age (years)",
+                                min_value=0,
+                                max_value=100,
+                                value=0,
+                                step=1,
+                                key="create_age_years",
+                                help="For whisky: 4+ = optional per 27 CFR 5.40(a). Use 0 if unknown. For blends, use youngest.",
+                            )
+                            st.checkbox(
+                                "Neutral spirits %", key="create_neutral_spirits"
+                            )
                         if _cur_bev == "Beer / Malt Beverage":
                             st.checkbox("Aspartame", key="create_aspartame")
                     if _cur_bev == "Wine":
-                        st.checkbox("Appellation of origin", key="create_appellation_required")
-                        st.checkbox("Varietal designation", key="create_varietal_required")
+                        st.checkbox(
+                            "Appellation of origin", key="create_appellation_required"
+                        )
+                        st.checkbox(
+                            "Varietal designation", key="create_varietal_required"
+                        )
 
             _current_snapshot = {k: ss.get(k) for k in _create_keys}
             if "create_details_last_saved" not in ss:
@@ -386,43 +505,90 @@ def _single_label_screen():
             _last_saved = ss.get("create_details_last_saved") or {}
             _dirty = _current_snapshot != _last_saved
             if _dirty:
-                if st.button("Save changes", key="sidebar_save_changes", type="primary"):
-                    ss["create_details_last_saved"] = {k: ss.get(k) for k in _create_keys}
+                if st.button(
+                    "Save changes", key="sidebar_save_changes", type="primary"
+                ):
+                    ss["create_details_last_saved"] = {
+                        k: ss.get(k) for k in _create_keys
+                    }
                     st.success("Changes saved.")
                     st.rerun()
         if view_key != "create_new" and st.session_state.get("selected_app_id"):
             _form_fill = _get_form_fill_from_session()
+
             def _dv(key: str, default: str = "") -> str:
                 v = _form_fill.get(key, default) if _form_fill else default
                 return str(v) if v is not None else default
+
             def _bev_idx() -> int:
                 if _form_fill and _form_fill.get("beverage_type") in _BEVERAGE_TYPES:
                     return _BEVERAGE_TYPES.index(_form_fill["beverage_type"])
                 return 0
+
             with st.form("main_form_selected"):
-                beverage_type = st.selectbox("Beverage type", _BEVERAGE_TYPES, index=_bev_idx())
-                brand = st.text_input("Brand name", value=_dv("brand_name"), placeholder="e.g. ABC Distillery")
-                class_type = st.text_input("Class / type", value=_dv("class_type"), placeholder="e.g. Straight Rye Whisky")
-                _prev_bev = _form_fill.get("beverage_type", "Distilled Spirits") if _form_fill else "Distilled Spirits"
-                _abv_lbl = "Alcohol % (optional)" if _prev_bev == "Beer / Malt Beverage" else "Alcohol %"
+                beverage_type = st.selectbox(
+                    "Beverage type", _BEVERAGE_TYPES, index=_bev_idx()
+                )
+                brand = st.text_input(
+                    "Brand name",
+                    value=_dv("brand_name"),
+                    placeholder="e.g. ABC Distillery",
+                )
+                class_type = st.text_input(
+                    "Class / type",
+                    value=_dv("class_type"),
+                    placeholder="e.g. Straight Rye Whisky",
+                )
+                _prev_bev = (
+                    _form_fill.get("beverage_type", "Distilled Spirits")
+                    if _form_fill
+                    else "Distilled Spirits"
+                )
+                _abv_lbl = (
+                    "Alcohol % (optional)"
+                    if _prev_bev == "Beer / Malt Beverage"
+                    else "Alcohol %"
+                )
                 if _prev_bev == "Distilled Spirits":
                     c1, c2 = st.columns(2)
                     with c1:
-                        alcohol_pct = st.text_input(_abv_lbl, value=_dv("alcohol_pct"), placeholder="45")
+                        alcohol_pct = st.text_input(
+                            _abv_lbl, value=_dv("alcohol_pct"), placeholder="45"
+                        )
                     with c2:
-                        proof = st.text_input("Proof", value=_dv("proof"), placeholder="90")
+                        proof = st.text_input(
+                            "Proof", value=_dv("proof"), placeholder="90"
+                        )
                 else:
-                    alcohol_pct = st.text_input(_abv_lbl, value=_dv("alcohol_pct"), placeholder="45")
+                    alcohol_pct = st.text_input(
+                        _abv_lbl, value=_dv("alcohol_pct"), placeholder="45"
+                    )
                     proof = ""
-                net_contents_ml = st.text_input("Net contents", value=_dv("net_contents_ml"), placeholder="e.g. 750 mL")
-                bottler_name = st.text_input("Bottler / Producer", value=_dv("bottler_name"), placeholder="ABC Distillery")
+                net_contents_ml = st.text_input(
+                    "Net contents",
+                    value=_dv("net_contents_ml"),
+                    placeholder="e.g. 750 mL",
+                )
+                bottler_name = st.text_input(
+                    "Bottler / Producer",
+                    value=_dv("bottler_name"),
+                    placeholder="ABC Distillery",
+                )
                 c3, c4 = st.columns(2)
                 with c3:
-                    bottler_city = st.text_input("City", value=_dv("bottler_city"), placeholder="Frederick")
+                    bottler_city = st.text_input(
+                        "City", value=_dv("bottler_city"), placeholder="Frederick"
+                    )
                 with c4:
-                    bottler_state = st.text_input("State", value=_dv("bottler_state"), placeholder="MD")
-                imported = st.checkbox("Imported product", value=_form_fill.get("imported", False))
-                country_of_origin = st.text_input("Country of origin", value=_dv("country_of_origin"))
+                    bottler_state = st.text_input(
+                        "State", value=_dv("bottler_state"), placeholder="MD"
+                    )
+                imported = st.checkbox(
+                    "Imported product", value=_form_fill.get("imported", False)
+                )
+                country_of_origin = st.text_input(
+                    "Country of origin", value=_dv("country_of_origin")
+                )
                 wood_treatment = age_statement = neutral_spirits = aspartame = False
                 age_years = 0
                 appellation_required = varietal_required = False
@@ -436,14 +602,27 @@ def _single_label_screen():
                         if _prev_bev == "Distilled Spirits":
                             wood_treatment = st.checkbox("Wood treatment")
                             age_statement = st.checkbox("Age statement")
-                            age_years = st.number_input("Age (years)", min_value=0, max_value=100, value=int(_form_fill.get("age_years") or 0) if _form_fill else 0, step=1, key="sidebar_age_years")
+                            age_years = st.number_input(
+                                "Age (years)",
+                                min_value=0,
+                                max_value=100,
+                                value=(
+                                    int(_form_fill.get("age_years") or 0)
+                                    if _form_fill
+                                    else 0
+                                ),
+                                step=1,
+                                key="sidebar_age_years",
+                            )
                             neutral_spirits = st.checkbox("Neutral spirits %")
                         if _prev_bev == "Beer / Malt Beverage":
                             aspartame = st.checkbox("Aspartame")
                     if _prev_bev == "Wine":
                         appellation_required = st.checkbox("Appellation of origin")
                         varietal_required = st.checkbox("Varietal designation")
-                submitted = st.form_submit_button("Check label", type="primary", width="stretch")
+                submitted = st.form_submit_button(
+                    "Check label", type="primary", width="stretch"
+                )
             upload = None  # sidebar form has no upload when viewing selected item
         else:
             upload = None
@@ -482,12 +661,14 @@ def _single_label_screen():
         with st.spinner("Analyzing label..."):
             try:
                 from src.pipeline import run_pipeline
+
                 result = run_pipeline(upload.getvalue(), app_data)
                 st.session_state["last_single_result"] = result
                 st.session_state["last_single_image_bytes"] = upload.getvalue()
             except Exception as e:
                 st.error(f"Analysis failed: {e}")
                 import traceback
+
                 st.code(traceback.format_exc())
                 return
         result = st.session_state["last_single_result"]
@@ -498,7 +679,9 @@ def _single_label_screen():
                 "**To analyze real labels:** Install [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) "
                 "(Windows) or `brew install tesseract` (Mac) / `apt install tesseract-ocr` (Linux), then add to PATH."
             )
-            st.image(result.get("image") or upload.getvalue(), caption="Your label image")
+            st.image(
+                result.get("image") or upload.getvalue(), caption="Your label image"
+            )
             return
         st.session_state["last_single_result"] = result
         st.session_state["last_single_image_bytes"] = upload.getvalue()
@@ -514,7 +697,12 @@ def _single_label_screen():
             "image_bytes": upload.getvalue(),
             "result": {k: v for k, v in result.items() if k != "image"},
         }
-        _render_single_result(result, upload.getvalue(), approve_reject={"entry": entry, "selected_id": None}, app_data=app_data)
+        _render_single_result(
+            result,
+            upload.getvalue(),
+            approve_reject={"entry": entry, "selected_id": None},
+            app_data=app_data,
+        )
         return
     if submitted and upload is None and adding_new:
         st.warning("Please upload a label image.")
@@ -559,7 +747,9 @@ def _single_label_screen():
             )
             _, btn_col, _ = st.columns([0.5, 3, 0.5])
             with btn_col:
-                submitted = st.form_submit_button("Check label", type="primary", width="stretch")
+                submitted = st.form_submit_button(
+                    "Check label", type="primary", width="stretch"
+                )
 
         if submitted and upload is not None:
             # Read application details from main area (session state)
@@ -591,6 +781,7 @@ def _single_label_screen():
             with st.spinner("Analyzing label..."):
                 try:
                     from src.pipeline import run_pipeline
+
                     result = run_pipeline(upload.getvalue(), app_data)
                     if result.get("error"):
                         st.error("**OCR unavailable**")
@@ -599,17 +790,21 @@ def _single_label_screen():
                         st.session_state["last_single_result"] = result
                         st.session_state["last_single_image_bytes"] = upload.getvalue()
                         st.session_state["last_single_app_data"] = app_data
-                        st.session_state["last_single_entry_id"] = st.session_state.get("last_single_entry_id") or str(uuid.uuid4())
+                        st.session_state["last_single_entry_id"] = st.session_state.get(
+                            "last_single_entry_id"
+                        ) or str(uuid.uuid4())
                         st.rerun()
                 except Exception as e:
                     st.error(f"Analysis failed: {e}")
                     import traceback
+
                     st.code(traceback.format_exc())
         return
 
     # Under Review list or detail view
     if view == "under_review":
         from src.storage import load_applications
+
         data = load_applications()
         apps = data["applications_under_review"]
         selected_id = st.session_state.get("selected_app_id")
@@ -619,10 +814,17 @@ def _single_label_screen():
         if selected_id and selected_bucket == bucket:
             entry = next((a for a in apps if a["id"] == selected_id), None)
             if entry:
-                st.subheader(f"{entry.get('brand_name', '—')} — {entry.get('class_type', '')}")
+                st.subheader(
+                    f"{entry.get('brand_name', '—')} — {entry.get('class_type', '')}"
+                )
                 result_for_display = dict(entry["result"])
                 result_for_display["image"] = None
-                _render_single_result(result_for_display, entry.get("image_bytes"), approve_reject={"entry": entry, "selected_id": selected_id}, app_data=entry.get("app_data", {}))
+                _render_single_result(
+                    result_for_display,
+                    entry.get("image_bytes"),
+                    approve_reject={"entry": entry, "selected_id": selected_id},
+                    app_data=entry.get("app_data", {}),
+                )
                 if st.button("Back to list", key="back_to_list"):
                     st.session_state["selected_app_id"] = None
                     st.session_state["selected_app_bucket"] = None
@@ -651,7 +853,9 @@ def _single_label_screen():
                             else:
                                 st.caption("(no image)")
                         with text_col:
-                            st.markdown(f"**{a.get('brand_name', '—')}** — {a.get('class_type', '')}  \n_{a.get('overall_status', '—')}_")
+                            st.markdown(
+                                f"**{a.get('brand_name', '—')}** — {a.get('class_type', '')}  \n_{a.get('overall_status', '—')}_"
+                            )
                         with btn_col:
                             if st.button("View", key=f"view_{a['id']}"):
                                 st.session_state["selected_app_id"] = a["id"]
@@ -675,7 +879,12 @@ def _single_label_screen():
             "image_bytes": image_bytes,
             "result": {k: v for k, v in result.items() if k != "image"},
         }
-        _render_single_result(result, image_bytes, approve_reject={"entry": entry, "selected_id": None}, app_data=app_data)
+        _render_single_result(
+            result,
+            image_bytes,
+            approve_reject={"entry": entry, "selected_id": None},
+            app_data=app_data,
+        )
 
         # Replace image: upload a different photo and re-check with same application data
         st.divider()
@@ -702,13 +911,17 @@ def _single_label_screen():
             with st.spinner("Analyzing label..."):
                 try:
                     from src.pipeline import run_pipeline
+
                     new_result = run_pipeline(replace_upload.getvalue(), app_data)
                     st.session_state["last_single_result"] = new_result
-                    st.session_state["last_single_image_bytes"] = replace_upload.getvalue()
+                    st.session_state["last_single_image_bytes"] = (
+                        replace_upload.getvalue()
+                    )
                     st.rerun()
                 except Exception as e:
                     st.error(f"Analysis failed: {e}")
                     import traceback
+
                     st.code(traceback.format_exc())
         return
 
@@ -717,8 +930,16 @@ def _single_label_screen():
 
 def _highlight_unmatched_words(extracted: str, required: str) -> str:
     """Return HTML with words in extracted that are not in required highlighted in red."""
+
     def _esc(s):
-        return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+        return (
+            (s or "")
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
+
     req_upper = (required or "").upper()
     req_words = frozenset(re.findall(r"\b[A-Za-z0-9]+\b", req_upper))
     tokens = re.findall(r"\b[A-Za-z0-9]+\b|[^\w\s]|\s+", (extracted or ""))
@@ -726,7 +947,9 @@ def _highlight_unmatched_words(extracted: str, required: str) -> str:
     for t in tokens:
         if re.match(r"^[A-Za-z0-9]+$", t):
             if t.upper() not in req_words:
-                parts.append(f'<span style="color:red; background:#ffebee;">{_esc(t)}</span>')
+                parts.append(
+                    f'<span style="color:red; background:#ffebee;">{_esc(t)}</span>'
+                )
             else:
                 parts.append(_esc(t))
         else:
@@ -736,8 +959,15 @@ def _highlight_unmatched_words(extracted: str, required: str) -> str:
 
 def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
     """Build ordered matrix rows: Criteria, Application, Label, Status. Uses app_data for imported/beverage_type."""
-    by_rule: dict[str, dict] = {r.get("rule_id", ""): r for r in rule_results if r.get("rule_id")}
-    bev = (app_data.get("beverage_type") or "spirits").lower().replace("/", "_").replace(" ", "_")
+    by_rule: dict[str, dict] = {
+        r.get("rule_id", ""): r for r in rule_results if r.get("rule_id")
+    }
+    bev = (
+        (app_data.get("beverage_type") or "spirits")
+        .lower()
+        .replace("/", "_")
+        .replace(" ", "_")
+    )
     is_spirits = bev in ("spirits", "distilled_spirits")
     imported = bool(app_data.get("imported"))
 
@@ -755,14 +985,35 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
         ext_lower = ext_val.lower()
         if app_norm in ext_lower:
             return True
-        tokens = [t.strip(".,;:!?'\"()") for t in app_norm.split() if t.strip(".,;:!?'\"()")]
+        tokens = [
+            t.strip(".,;:!?'\"()") for t in app_norm.split() if t.strip(".,;:!?'\"()")
+        ]
         return tokens and all(t in ext_lower for t in tokens)
 
-    _GENERIC_BRAND_TOKENS = frozenset(["brewery", "distillery", "winery", "inc", "co", "company", "llc", "ale", "beer", "spirits", "beverage", "beverages"])
+    _GENERIC_BRAND_TOKENS = frozenset(
+        [
+            "brewery",
+            "distillery",
+            "winery",
+            "inc",
+            "co",
+            "company",
+            "llc",
+            "ale",
+            "beer",
+            "spirits",
+            "beverage",
+            "beverages",
+        ]
+    )
 
     def _extracted_is_generic_only(ext_val: str) -> bool:
         """True if extracted value is a single generic token (e.g. BREWERY)."""
-        tokens = [t.strip(".,;:!?'\"()") for t in (ext_val or "").lower().split() if t.strip(".,;:!?'\"()")]
+        tokens = [
+            t.strip(".,;:!?'\"()")
+            for t in (ext_val or "").lower().split()
+            if t.strip(".,;:!?'\"()")
+        ]
         return len(tokens) == 1 and tokens[0] in _GENERIC_BRAND_TOKENS
 
     def row(criteria: str, *rule_ids: str) -> dict | None:
@@ -777,16 +1028,28 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
         # Heuristic: if extracted is only a generic token (e.g. BREWERY) and app has more, show app value
         # Skip for government warning — we want to show the full extracted warning message
         rule_id = r.get("rule_id", "")
-        skip_heuristic = "government warning" in criteria.lower() or "government warning" in rule_id.lower() or rule_id == "Exact warning wording"
+        skip_heuristic = (
+            "government warning" in criteria.lower()
+            or "government warning" in rule_id.lower()
+            or rule_id == "Exact warning wording"
+        )
         if not skip_heuristic and app_val:
             # Don't swap when both are numeric (e.g. "5" in "15" would wrongly show app)
-            both_numeric = re.match(r"^\d+(?:\.\d+)?%?\s*$", app_val.strip()) and re.match(r"^\d+(?:\.\d+)?%?\s*$", ext_val.strip())
-            if not both_numeric and len(ext_val) > len(app_val) and _app_part_in_extracted(app_val, ext_val):
+            both_numeric = re.match(
+                r"^\d+(?:\.\d+)?%?\s*$", app_val.strip()
+            ) and re.match(r"^\d+(?:\.\d+)?%?\s*$", ext_val.strip())
+            if (
+                not both_numeric
+                and len(ext_val) > len(app_val)
+                and _app_part_in_extracted(app_val, ext_val)
+            ):
                 ext_val = app_val
             elif _extracted_is_generic_only(ext_val) and len(app_val) > len(ext_val):
                 ext_val = app_val
         # Gov warning: show full text, no truncation
-        is_gov_wording = "government warning" in criteria.lower() and "wording" in criteria.lower()
+        is_gov_wording = (
+            "government warning" in criteria.lower() and "wording" in criteria.lower()
+        )
         if not is_gov_wording:
             if len(app_val) > 80:
                 app_val = app_val[:77] + "..."
@@ -797,8 +1060,17 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
         if is_gov_wording and app_val and ext_val:
             label_html = _highlight_unmatched_words(ext_val, app_val)
         status = r.get("status", "pass")
-        status_display = {"pass": "Pass", "needs_review": "Needs review", "fail": "Fail"}.get(status, "Needs review")
-        out = {"Criteria": criteria, "Application": app_val or "—", "Label": ext_val or "—", "Status": status_display}
+        status_display = {
+            "pass": "Pass",
+            "needs_review": "Needs review",
+            "fail": "Fail",
+        }.get(status, "Needs review")
+        out = {
+            "Criteria": criteria,
+            "Application": app_val or "—",
+            "Label": ext_val or "—",
+            "Status": status_display,
+        }
         if label_html is not None:
             out["Label_html"] = label_html
         return out
@@ -808,7 +1080,10 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
         ("Brand Name", ["Brand name matches", "Brand name present"]),
         ("Type", ["Class/type matches", "Class/type present"]),
         ("Government Warning (All Caps)", ["GOVERNMENT WARNING in caps"]),
-        ("Government Warning Wording", ["Exact warning wording", "Government warning present"]),
+        (
+            "Government Warning Wording",
+            ["Exact warning wording", "Government warning present"],
+        ),
         ("Bottler/Producer", ["Bottler matches", "Bottler/producer statement"]),
         ("Bottler/Address", ["Bottler address"]),
     ]:
@@ -822,9 +1097,20 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
             rows.append(r)
 
     for criteria, rids in [
-        ("Alcohol content (ABV)", ["Alcohol content matches", "Alcohol content", "Alcohol content present"]),
+        (
+            "Alcohol content (ABV)",
+            ["Alcohol content matches", "Alcohol content", "Alcohol content present"],
+        ),
         ("Proof", ["Proof matches", "Proof present", "Proof", "Proof/ABV consistency"]),
-        ("Net contents", ["Net contents matches", "Net contents standard of fill", "Net contents", "Net contents present"]),
+        (
+            "Net contents",
+            [
+                "Net contents matches",
+                "Net contents standard of fill",
+                "Net contents",
+                "Net contents present",
+            ],
+        ),
     ]:
         if criteria == "Proof" and not is_spirits:
             continue
@@ -863,28 +1149,49 @@ def _render_validation_matrix(rows: list[dict]) -> None:
     }
 
     def _esc(s: str) -> str:
-        return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+        return (
+            (s or "")
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
 
     html = ['<table style="width:100%; border-collapse:collapse; font-size:0.95rem;">']
     html.append("<thead><tr>")
     for h in ["Criteria", "Application", "Label", "Status"]:
-        html.append(f'<th style="text-align:left; padding:0.5rem 0.75rem; border-bottom:2px solid #dee2e6;">{_esc(h)}</th>')
+        html.append(
+            f'<th style="text-align:left; padding:0.5rem 0.75rem; border-bottom:2px solid #dee2e6;">{_esc(h)}</th>'
+        )
     html.append("</tr></thead><tbody>")
     for r in rows:
         html.append("<tr>")
-        html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{_esc(str(r.get("Criteria", "")))}</td>')
-        html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{_esc(str(r.get("Application", "")))}</td>')
+        html.append(
+            f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{_esc(str(r.get("Criteria", "")))}</td>'
+        )
+        html.append(
+            f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{_esc(str(r.get("Application", "")))}</td>'
+        )
         label_cell = r.get("Label_html") or _esc(str(r.get("Label", "")))
-        html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{label_cell}</td>')
+        html.append(
+            f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6;">{label_cell}</td>'
+        )
         status = str(r.get("Status", ""))
         style = status_style.get(status, "")
-        html.append(f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6; {style}">{_esc(status)}</td>')
+        html.append(
+            f'<td style="padding:0.5rem 0.75rem; border-bottom:1px solid #dee2e6; {style}">{_esc(status)}</td>'
+        )
         html.append("</tr>")
     html.append("</tbody></table>")
     st.markdown("".join(html), unsafe_allow_html=True)
 
 
-def _render_single_result(result: dict, image_bytes: bytes | None, approve_reject: dict | None = None, app_data: dict | None = None):
+def _render_single_result(
+    result: dict,
+    image_bytes: bytes | None,
+    approve_reject: dict | None = None,
+    app_data: dict | None = None,
+):
     """Render label check result: status banner, caption, image, validation matrix, checklist. approve_reject: {"entry", "selected_id"} to show Approve/Decline."""
     overall = result.get("overall_status", "—")
     counts = result.get("counts", {})
@@ -895,7 +1202,10 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
         "Critical issues": "status-fail",
     }.get(overall, "status-review")
 
-    st.markdown(f'<div class="status-banner {css_class}">{overall}</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="status-banner {css_class}">{overall}</div>',
+        unsafe_allow_html=True,
+    )
     if approve_reject:
         cap_col, btn1_col, btn2_col = st.columns([2, 1, 1])
         with cap_col:
@@ -908,36 +1218,82 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
         selected_id = approve_reject.get("selected_id")
         with btn1_col:
             with st.container(key="approve_btn"):
-                if st.button("Approve", type="primary", key="btn_approve", width="stretch"):
+                if st.button(
+                    "Approve", type="primary", key="btn_approve", width="stretch"
+                ):
                     from src.storage import load_applications, save_applications
+
                     data = load_applications()
                     if selected_id:
-                        data["applications_under_review"] = [a for a in data["applications_under_review"] if a.get("id") != selected_id]
-                    data["applications_approved"] = data["applications_approved"] + [entry]
-                    save_applications(data["applications_under_review"], data["applications_approved"], data["applications_rejected"])
-                    for k in ("last_single_result", "last_single_image_bytes", "last_single_app_data", "last_single_entry_id"):
+                        data["applications_under_review"] = [
+                            a
+                            for a in data["applications_under_review"]
+                            if a.get("id") != selected_id
+                        ]
+                    data["applications_approved"] = data["applications_approved"] + [
+                        entry
+                    ]
+                    save_applications(
+                        data["applications_under_review"],
+                        data["applications_approved"],
+                        data["applications_rejected"],
+                    )
+                    for k in (
+                        "last_single_result",
+                        "last_single_image_bytes",
+                        "last_single_app_data",
+                        "last_single_entry_id",
+                    ):
                         st.session_state.pop(k, None)
                     d = load_applications()
-                    st.session_state["applications_under_review"] = d["applications_under_review"]
-                    st.session_state["applications_approved"] = d["applications_approved"]
-                    st.session_state["applications_rejected"] = d["applications_rejected"]
+                    st.session_state["applications_under_review"] = d[
+                        "applications_under_review"
+                    ]
+                    st.session_state["applications_approved"] = d[
+                        "applications_approved"
+                    ]
+                    st.session_state["applications_rejected"] = d[
+                        "applications_rejected"
+                    ]
                     st.session_state["app_list_view"] = "create_new"
                     st.rerun()
         with btn2_col:
             with st.container(key="decline_btn"):
                 if st.button("Decline", key="btn_decline", width="stretch"):
                     from src.storage import load_applications, save_applications
+
                     data = load_applications()
                     if selected_id:
-                        data["applications_under_review"] = [a for a in data["applications_under_review"] if a.get("id") != selected_id]
-                    data["applications_rejected"] = data["applications_rejected"] + [entry]
-                    save_applications(data["applications_under_review"], data["applications_approved"], data["applications_rejected"])
-                    for k in ("last_single_result", "last_single_image_bytes", "last_single_app_data", "last_single_entry_id"):
+                        data["applications_under_review"] = [
+                            a
+                            for a in data["applications_under_review"]
+                            if a.get("id") != selected_id
+                        ]
+                    data["applications_rejected"] = data["applications_rejected"] + [
+                        entry
+                    ]
+                    save_applications(
+                        data["applications_under_review"],
+                        data["applications_approved"],
+                        data["applications_rejected"],
+                    )
+                    for k in (
+                        "last_single_result",
+                        "last_single_image_bytes",
+                        "last_single_app_data",
+                        "last_single_entry_id",
+                    ):
                         st.session_state.pop(k, None)
                     d = load_applications()
-                    st.session_state["applications_under_review"] = d["applications_under_review"]
-                    st.session_state["applications_approved"] = d["applications_approved"]
-                    st.session_state["applications_rejected"] = d["applications_rejected"]
+                    st.session_state["applications_under_review"] = d[
+                        "applications_under_review"
+                    ]
+                    st.session_state["applications_approved"] = d[
+                        "applications_approved"
+                    ]
+                    st.session_state["applications_rejected"] = d[
+                        "applications_rejected"
+                    ]
                     st.session_state["app_list_view"] = "create_new"
                     st.rerun()
     else:
@@ -948,8 +1304,14 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
         )
 
     # Validation matrix: Criteria, Application, Label, Status
-    resolved_app_data = app_data if app_data is not None else (approve_reject["entry"]["app_data"] if approve_reject else {})
-    matrix_rows = _build_validation_matrix(result.get("rule_results", []), resolved_app_data)
+    resolved_app_data = (
+        app_data
+        if app_data is not None
+        else (approve_reject["entry"]["app_data"] if approve_reject else {})
+    )
+    matrix_rows = _build_validation_matrix(
+        result.get("rule_results", []), resolved_app_data
+    )
     st.subheader("Validation")
     _render_validation_matrix(matrix_rows)
     st.divider()
@@ -957,6 +1319,7 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
     img = result.get("image")
     if img is None and image_bytes:
         from PIL import Image
+
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
     col_img, col_tabs = st.columns([1, 1])
@@ -977,6 +1340,7 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
         with tab_raw:
             try:
                 import pytesseract
+
                 tesseract_ver = pytesseract.get_tesseract_version()
                 st.caption(f"Tesseract {tesseract_ver}")
             except Exception:
@@ -985,6 +1349,7 @@ def _render_single_result(result: dict, image_bytes: bytes | None, approve_rejec
             if img is not None:
                 with st.expander("Preprocessing (images fed to Tesseract)"):
                     from src.ocr import get_preprocessing_preview
+
                     orig, sharpened, binary = get_preprocessing_preview(img)
                     c1, c2, c3 = st.columns(3)
                     with c1:
@@ -1006,7 +1371,9 @@ def _government_warning_display(raw: str) -> str:
     if not raw or raw == "(not found)":
         return raw
     # Ensure "Surgeon General" is always capitalized (S and G) regardless of all-caps or not
-    out = re.sub(r"\bsurgeon\s+general\b", "Surgeon General", raw.strip(), flags=re.IGNORECASE)
+    out = re.sub(
+        r"\bsurgeon\s+general\b", "Surgeon General", raw.strip(), flags=re.IGNORECASE
+    )
     return out
 
 
@@ -1038,19 +1405,25 @@ def _render_comparison_table(extracted: dict, result: dict):
 # Batch screen
 # ---------------------------------------------------------------------------
 
+
 def _batch_screen():
     import zipfile
     from src.pipeline import run_pipeline
 
     st.divider()
-    up_col1, up_col2, up_col3 = st.columns([1, 1, 1])
+    up_col1, up_col2, up_col3 = st.columns([1, 1, 1.8])
     with up_col1:
-        zip_upload = st.file_uploader("Upload ZIP of label images", type=["zip"], key="batch_zip")
+        zip_upload = st.file_uploader(
+            "Upload ZIP of label images", type=["zip"], key="batch_zip"
+        )
     with up_col2:
-        csv_upload = st.file_uploader("Upload CSV (application data)", type=["csv"], key="batch_csv")
+        csv_upload = st.file_uploader(
+            "Upload CSV (application data)", type=["csv"], key="batch_csv"
+        )
     with up_col3:
+        st.markdown('<div style="min-height: 2rem;"></div>', unsafe_allow_html=True)
         with st.container(key="batch_run_btn"):
-            run_batch = st.button("Run batch checks", key="batch_run", type="primary")
+            run_batch = st.button("Check labels", key="batch_run", type="primary")
 
     batch_results = st.session_state.get("batch_results", [])
     selected_id = st.session_state.get("batch_selected_id")
@@ -1064,7 +1437,11 @@ def _batch_screen():
                     df = pd.read_csv(csv_upload)
                     df = _normalize_csv_columns(df)
                     z = zipfile.ZipFile(zip_upload, "r")
-                    name_to_bytes = {info.filename: z.read(info.filename) for info in z.infolist() if not info.is_dir()}
+                    name_to_bytes = {
+                        info.filename: z.read(info.filename)
+                        for info in z.infolist()
+                        if not info.is_dir()
+                    }
                     z.close()
                     results = []
                     for _, row in df.iterrows():
@@ -1072,41 +1449,47 @@ def _batch_screen():
                         app_data = _row_to_app_data(row)
                         img_bytes = _find_image_for_label(name_to_bytes, label_id)
                         if img_bytes is None:
-                            results.append({
-                                "label_id": label_id,
-                                "overall_status": "Critical issues",
-                                "fail_count": 1,
-                                "brand_name": app_data.get("brand_name", ""),
-                                "class_type": app_data.get("class_type", ""),
-                                "result": None,
-                                "error": f"No image found for label_id '{label_id}'.",
-                                "app_data": app_data,
-                            })
+                            results.append(
+                                {
+                                    "label_id": label_id,
+                                    "overall_status": "Critical issues",
+                                    "fail_count": 1,
+                                    "brand_name": app_data.get("brand_name", ""),
+                                    "class_type": app_data.get("class_type", ""),
+                                    "result": None,
+                                    "error": f"No image found for label_id '{label_id}'.",
+                                    "app_data": app_data,
+                                }
+                            )
                             continue
                         try:
                             r = run_pipeline(img_bytes, app_data)
                             fail_count = r.get("counts", {}).get("fail", 0)
-                            results.append({
-                                "label_id": label_id,
-                                "overall_status": r.get("overall_status", "—"),
-                                "fail_count": fail_count,
-                                "brand_name": app_data.get("brand_name", ""),
-                                "class_type": app_data.get("class_type", ""),
-                                "result": r,
-                                "error": None,
-                                "app_data": app_data,
-                            })
+                            results.append(
+                                {
+                                    "label_id": label_id,
+                                    "overall_status": r.get("overall_status", "—"),
+                                    "fail_count": fail_count,
+                                    "brand_name": app_data.get("brand_name", ""),
+                                    "class_type": app_data.get("class_type", ""),
+                                    "result": r,
+                                    "error": None,
+                                    "app_data": app_data,
+                                }
+                            )
                         except Exception as e:
-                            results.append({
-                                "label_id": label_id,
-                                "overall_status": "Critical issues",
-                                "fail_count": 1,
-                                "brand_name": app_data.get("brand_name", ""),
-                                "class_type": app_data.get("class_type", ""),
-                                "result": None,
-                                "error": str(e),
-                                "app_data": app_data,
-                            })
+                            results.append(
+                                {
+                                    "label_id": label_id,
+                                    "overall_status": "Critical issues",
+                                    "fail_count": 1,
+                                    "brand_name": app_data.get("brand_name", ""),
+                                    "class_type": app_data.get("class_type", ""),
+                                    "result": None,
+                                    "error": str(e),
+                                    "app_data": app_data,
+                                }
+                            )
                     st.session_state["batch_results"] = results
                     if "batch_selected_id" in st.session_state:
                         del st.session_state["batch_selected_id"]
@@ -1118,17 +1501,19 @@ def _batch_screen():
     if batch_results:
         batch_decisions = st.session_state.get("batch_decisions", {})
 
-        df_display = pd.DataFrame([
-            {
-                "label_id": r["label_id"],
-                "brand_name": r["brand_name"],
-                "class_type": r["class_type"],
-                "overall_status": r["overall_status"],
-                "failed_rules": r["fail_count"],
-                "decision": batch_decisions.get(r["label_id"], "—"),
-            }
-            for r in batch_results
-        ])
+        df_display = pd.DataFrame(
+            [
+                {
+                    "label_id": r["label_id"],
+                    "brand_name": r["brand_name"],
+                    "class_type": r["class_type"],
+                    "overall_status": r["overall_status"],
+                    "failed_rules": r["fail_count"],
+                    "decision": batch_decisions.get(r["label_id"], "—"),
+                }
+                for r in batch_results
+            ]
+        )
         status_filter = st.selectbox(
             "Filter by status",
             ["All", "Critical issues", "Needs review", "Ready to approve"],
@@ -1193,7 +1578,9 @@ def _batch_screen():
         st.subheader(f"Detail: {selected_id}")
         match = next((r for r in batch_results if r["label_id"] == selected_id), None)
         if match and match.get("result"):
-            _render_single_result(match["result"], None, app_data=match.get("app_data") or {})
+            _render_single_result(
+                match["result"], None, app_data=match.get("app_data") or {}
+            )
         elif match and match.get("error"):
             st.error(match["error"])
         if st.button("Back to batch table", key="batch_back"):
@@ -1202,55 +1589,86 @@ def _batch_screen():
             st.rerun()
 
     if not batch_results:
-        st.markdown("Upload a **ZIP** of label images and a **CSV** file with one row per label.")
-        st.markdown("**Required CSV columns:**")
         st.markdown(
-            "`label_id`, `brand_name`, `class_type`, `alcohol_pct`, `proof`, `net_contents_ml`, "
-            "`bottler_name`, `bottler_city`, `bottler_state`, `imported`, `country_of_origin`, `beverage_type`"
+            "Upload a **ZIP** of label images and a **CSV** file with one row per label."
         )
-        st.markdown("You can add optional columns: `sulfites_required`, `age_statement_required`, `wood_treatment_required`, `neutral_spirits_required`, etc.")
-        st.markdown("**Example (first 2 rows):**")
-        st.code(
-            "label_id,brand_name,class_type,alcohol_pct,proof,net_contents_ml,bottler_name,bottler_city,bottler_state,imported,country_of_origin,beverage_type\n"
-            "test_1,ABC Distillery,Single Barrel Straight Rye Whisky,45,90,750 mL,ABC Distillery,Frederick,MD,false,,Distilled Spirits\n"
-            "test_2,Malt & Hop Brewery,Pale Ale,5,,24 fl oz,Malt & Hop Brewery,Hyattsville,MD,false,,Beer / Malt Beverage\n"
-            "test_4,Malt & Hop Brewery,Barleywine Ale,,,12 fl oz,Malt & Hop Brewery,,,false,,Beer / Malt Beverage\n"
-            "test_7,Woodford Reserve,Bourbon Whiskey,45.2,90.4,375 mL,Woodford Reserve,,KY,false,,Distilled Spirits",
-            language=None,
-        )
-        st.caption("See sample_data/batch_example.csv for a full example.")
+        with st.expander("Instructions", expanded=False):
+            st.markdown("**Required CSV columns:**")
+            st.markdown(
+                "`label_id`, `brand_name`, `class_type`, `alcohol_pct`, `proof`, `net_contents_ml`, "
+                "`bottler_name`, `bottler_city`, `bottler_state`, `imported`, `country_of_origin`, `beverage_type`"
+            )
+            st.markdown(
+                "You can add optional columns: `sulfites_required`, `age_statement_required`, `wood_treatment_required`, `neutral_spirits_required`, etc."
+            )
+            st.markdown("**Example (first 2 rows):**")
+            st.code(
+                "label_id,brand_name,class_type,alcohol_pct,proof,net_contents_ml,bottler_name,bottler_city,bottler_state,imported,country_of_origin,beverage_type\n"
+                "test_1,ABC Distillery,Single Barrel Straight Rye Whisky,45,90,750 mL,ABC Distillery,Frederick,MD,false,,Distilled Spirits\n"
+                "test_2,Malt & Hop Brewery,Pale Ale,5,,24 fl oz,Malt & Hop Brewery,Hyattsville,MD,false,,Beer / Malt Beverage\n"
+                "test_4,Malt & Hop Brewery,Barleywine Ale,,,12 fl oz,Malt & Hop Brewery,,,false,,Beer / Malt Beverage\n"
+                "test_7,Woodford Reserve,Bourbon Whiskey,45.2,90.4,375 mL,Woodford Reserve,,KY,false,,Distilled Spirits",
+                language=None,
+            )
+            st.caption("See sample_data/batch_example.csv for a full example.")
 
 
 # ---------------------------------------------------------------------------
 # CSV helpers
 # ---------------------------------------------------------------------------
 
+
 def _normalize_csv_columns(df):
     col_map = {
-        "label id": "label_id", "label_id": "label_id",
-        "brand name": "brand_name", "brand_name": "brand_name",
-        "class type": "class_type", "class_type": "class_type",
-        "alcohol pct": "alcohol_pct", "alcohol_pct": "alcohol_pct",
+        "label id": "label_id",
+        "label_id": "label_id",
+        "brand name": "brand_name",
+        "brand_name": "brand_name",
+        "class type": "class_type",
+        "class_type": "class_type",
+        "alcohol pct": "alcohol_pct",
+        "alcohol_pct": "alcohol_pct",
         "proof": "proof",
-        "net contents": "net_contents_ml", "net_contents_ml": "net_contents_ml", "net contents ml": "net_contents_ml",
-        "bottler name": "bottler_name", "bottler_name": "bottler_name",
-        "bottler city": "bottler_city", "bottler_city": "bottler_city",
-        "bottler state": "bottler_state", "bottler_state": "bottler_state",
+        "net contents": "net_contents_ml",
+        "net_contents_ml": "net_contents_ml",
+        "net contents ml": "net_contents_ml",
+        "bottler name": "bottler_name",
+        "bottler_name": "bottler_name",
+        "bottler city": "bottler_city",
+        "bottler_city": "bottler_city",
+        "bottler state": "bottler_state",
+        "bottler_state": "bottler_state",
         "imported": "imported",
-        "country of origin": "country_of_origin", "country_of_origin": "country_of_origin",
-        "beverage type": "beverage_type", "beverage_type": "beverage_type",
-        "sulfites required": "sulfites_required", "sulfites_required": "sulfites_required",
-        "fd_c_yellow_5_required": "fd_c_yellow_5_required", "fd&c yellow 5": "fd_c_yellow_5_required",
-        "carmine_required": "carmine_required", "carmine required": "carmine_required",
-        "wood_treatment_required": "wood_treatment_required", "wood treatment": "wood_treatment_required",
-        "age_statement_required": "age_statement_required", "age statement": "age_statement_required",
-        "age_years": "age_years", "age years": "age_years", "youngest_age_years": "youngest_age_years",
-        "neutral_spirits_required": "neutral_spirits_required", "neutral spirits": "neutral_spirits_required",
+        "country of origin": "country_of_origin",
+        "country_of_origin": "country_of_origin",
+        "beverage type": "beverage_type",
+        "beverage_type": "beverage_type",
+        "sulfites required": "sulfites_required",
+        "sulfites_required": "sulfites_required",
+        "fd_c_yellow_5_required": "fd_c_yellow_5_required",
+        "fd&c yellow 5": "fd_c_yellow_5_required",
+        "carmine_required": "carmine_required",
+        "carmine required": "carmine_required",
+        "wood_treatment_required": "wood_treatment_required",
+        "wood treatment": "wood_treatment_required",
+        "age_statement_required": "age_statement_required",
+        "age statement": "age_statement_required",
+        "age_years": "age_years",
+        "age years": "age_years",
+        "youngest_age_years": "youngest_age_years",
+        "neutral_spirits_required": "neutral_spirits_required",
+        "neutral spirits": "neutral_spirits_required",
     }
     df = df.copy()
     df.columns = [str(c).strip().lower() for c in df.columns]
     new_cols = {c: col_map[c] for c in df.columns if c in col_map}
-    new_cols.update({c: col_map[c.replace(" ", "_")] for c in df.columns if c not in new_cols and c.replace(" ", "_") in col_map})
+    new_cols.update(
+        {
+            c: col_map[c.replace(" ", "_")]
+            for c in df.columns
+            if c not in new_cols and c.replace(" ", "_") in col_map
+        }
+    )
     if new_cols:
         df = df.rename(columns=new_cols)
     return df
@@ -1279,7 +1697,11 @@ def _row_to_app_data(row):
         return str(x).strip()
 
     def b(key):
-        return str(row.get(key, "")).strip().lower() in ("1", "true", "yes", "y") if key in row else False
+        return (
+            str(row.get(key, "")).strip().lower() in ("1", "true", "yes", "y")
+            if key in row
+            else False
+        )
 
     bev_type_raw = v("beverage_type", "spirits").lower()
     bev_type = "spirits"
@@ -1312,6 +1734,7 @@ def _row_to_app_data(row):
 
 def _find_image_for_label(name_to_bytes: dict, label_id: str):
     import os
+
     label_id = label_id.strip()
     for fname, data in name_to_bytes.items():
         base = os.path.splitext(os.path.basename(fname))[0].strip()

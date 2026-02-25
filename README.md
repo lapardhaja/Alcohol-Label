@@ -82,8 +82,8 @@ Browser opens at `http://localhost:8501`.
 
 ## Deploy (Streamlit Cloud)
 
-Uses `packages.txt` and `sources.list` to install Tesseract 5.3. Point the app at this repo, run `streamlit run app.py` from root. See [Debian 11 EOL thread](https://discuss.streamlit.io/t/debian-11-eol/80690) for Tesseract setup.
+Uses `packages.txt` and `sources.list` to install Tesseract 5.3. Point the app at this repo, run `streamlit run app.py` from root.
 
 ---
 
-Take-home prototype. Not for production use without TTB approval.
+TTB label compliance verification prototype. Not for production use without TTB approval. Developed by Servet Lapardhaja.

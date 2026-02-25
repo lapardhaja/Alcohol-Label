@@ -28,9 +28,9 @@ def test_sample_csv_has_required_columns(sample_csv_path):
     assert required <= set(df.columns)
 
 
-def test_sample_csv_has_6_rows(sample_csv_path):
+def test_sample_csv_has_7_rows(sample_csv_path):
     df = pd.read_csv(sample_csv_path)
-    assert len(df) == 6
+    assert len(df) == 7
 
 
 def test_normalize_csv_columns_standard():

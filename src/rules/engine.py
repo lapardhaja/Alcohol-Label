@@ -4,10 +4,116 @@ Load rules config and run all rule categories. Return list of { rule_id, categor
 from __future__ import annotations
 
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Edit distance between two strings."""
+    if len(a) < len(b):
+        a, b = b, a
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a):
+        curr = [i + 1]
+        for j, cb in enumerate(b):
+            curr.append(min(
+                prev[j + 1] + 1,
+                curr[j] + 1,
+                prev[j] + (0 if ca == cb else 1),
+            ))
+        prev = curr
+    return prev[-1]
+
+
+def _all_required_present_fuzzy(req_counts: Counter, ext_words: list[str], max_dist: int = 2) -> bool:
+    """Check all required words present; use fuzzy match (Levenshtein <= max_dist) for words >= 5 chars."""
+    for w, c in req_counts.items():
+        wu = w.upper()
+        matches = 0
+        for ew in ext_words:
+            eu = ew.upper()
+            if eu == wu:
+                matches += 1
+            elif len(wu) >= 5 and len(eu) >= 4 and _levenshtein(wu, eu) <= max_dist:
+                matches += 1
+        if matches < c:
+            return False
+    return True
+
+
+def _dominant_casing(text: str) -> str:
+    """Return 'upper', 'lower', or 'mixed' based on word casing in text."""
+    words = [m for m in re.findall(r"\b[A-Za-z]{2,}\b", text)]
+    if not words:
+        return "mixed"
+    upper_count = sum(1 for w in words if w.isupper())
+    lower_count = sum(1 for w in words if w.islower())
+    if upper_count > len(words) * 0.5:
+        return "upper"
+    if lower_count > len(words) * 0.5:
+        return "lower"
+    return "mixed"
+
+
+def _apply_casing(word: str, style: str) -> str:
+    """Apply casing style: upper, lower, or mixed (capitalize)."""
+    if style == "upper":
+        return word.upper()
+    if style == "lower":
+        return word.lower()
+    return word.capitalize()
+
+
+def _best_fuzzy_match(word: str, ref_words: set[str], max_dist: int = 2) -> str | None:
+    """Return best matching ref word (Levenshtein <= max_dist, len >= 5) or None."""
+    wu = word.upper()
+    if len(wu) < 4:
+        return None
+    best: tuple[int, str] | None = None
+    for r in ref_words:
+        ru = r.upper()
+        if len(ru) < 5:
+            continue
+        d = _levenshtein(wu, ru)
+        if d <= max_dist and (best is None or d < best[0]):
+            best = (d, r)
+    return best[1] if best else None
+
+
+def _fix_hyphenated_ocr_in_warning(text: str) -> str:
+    """Replace OCR hyphenated word splits with correct words for display."""
+    if not text:
+        return text
+    casing = _dominant_casing(text)
+    preg = _apply_casing("pregnancy", casing)
+    mach = _apply_casing("machinery", casing)
+    s = re.sub(r"prep-\s*nancy", preg, text, flags=re.I)
+    s = re.sub(r"preg-\s*nancy", preg, s, flags=re.I)
+    s = re.sub(r"machin-\s*ery", mach, s, flags=re.I)
+    return s
+
+
+def _apply_fuzzy_word_correction_to_warning(text: str, ref_words: set[str], max_dist: int = 2) -> str:
+    """Replace OCR-misread words with correct reference words in display text."""
+    if not text or not ref_words:
+        return text
+    casing = _dominant_casing(text)
+    words = re.findall(r"\b\w+\b|\W+", text)
+    corrected = []
+    for w in words:
+        if not re.match(r"\w+", w):
+            corrected.append(w)
+            continue
+        wu = w.upper()
+        if wu in {r.upper() for r in ref_words}:
+            corrected.append(w)
+            continue
+        match = _best_fuzzy_match(w, ref_words, max_dist)
+        corrected.append(_apply_casing(match, casing) if match else w)
+    return "".join(corrected)
 
 
 def _load_config() -> dict[str, Any]:
@@ -679,6 +785,7 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
         s = re.sub(r"\(2\s*\)", "(2)", s)
         # Line-break hyphens
         s = re.sub(r"PREG-\s*NANCY", "PREGNANCY", s)
+        s = re.sub(r"PREP-\s*NANCY", "PREGNANCY", s)
         s = re.sub(r"MACHIN-\s*ERY", "MACHINERY", s, flags=re.I)
         # Compound OCR errors
         s = re.sub(r"HEALTHIPROBLEMS", "HEALTH PROBLEMS", s, flags=re.I)
@@ -708,12 +815,11 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     def _warning_words(s: str) -> list[str]:
         return re.findall(r"\b\w+\b", (s or "").upper())
 
-    from collections import Counter
     req_words = _warning_words(required_norm)
     ext_words = _warning_words(full_text_norm)
     req_counts = Counter(req_words)
     ext_counts = Counter(ext_words)
-    all_required_present = all(ext_counts.get(w, 0) >= c for w, c in req_counts.items())
+    all_required_present = _all_required_present_fuzzy(req_counts, ext_words, max_dist=2)
     extra_unique = [w for w in set(ext_words) if w not in req_counts]
     no_extra = len(extra_unique) == 0  # no extra words allowed
 
@@ -749,7 +855,9 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     suspicious = _get_suspicious_warning_tokens(extra_unique, set(req_words))
     ref_words = set(req_words)
     filtered_text = _filter_suspicious_from_warning(full_text or "", suspicious) or full_text or ""
-    display_extracted = _apply_spell_correction_to_warning(filtered_text, ref_words) or filtered_text
+    display_extracted = _fix_hyphenated_ocr_in_warning(filtered_text)
+    display_extracted = _apply_spell_correction_to_warning(display_extracted, ref_words) or display_extracted
+    display_extracted = _apply_fuzzy_word_correction_to_warning(display_extracted, ref_words, max_dist=2)
     display_extracted = _collapse_duplicate_warning_phrase(display_extracted or "")
     # Use filtered text for pass/fail: OCR garbage (QZ, QB) shouldn't block pass when content matches
     text_for_compare = _collapse_duplicate_warning_phrase(filtered_text or "") or full_text or ""
@@ -757,7 +865,7 @@ def _rules_warning(extracted: dict, app_data: dict, config: dict) -> list[dict]:
     text_for_compare_stripped = text_for_compare_norm.strip()
     ext_words_clean = _warning_words(text_for_compare_norm)
     ext_counts_clean = Counter(ext_words_clean)
-    all_required_present_clean = all(ext_counts_clean.get(w, 0) >= c for w, c in req_counts.items())
+    all_required_present_clean = _all_required_present_fuzzy(req_counts, ext_words_clean, max_dist=2)
     extra_unique_clean = [w for w in set(ext_words_clean) if w not in req_counts]
     no_extra_clean = len(extra_unique_clean) == 0
     required_in_label = required_norm and required_norm in text_for_compare_norm

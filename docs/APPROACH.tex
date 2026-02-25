@@ -66,18 +66,13 @@ Label image + Application data
 
 \section{Innovations}
 
-The system is designed for speed and agent efficiency. It runs entirely locally (no cloud API calls), so a single label check completes in seconds. That gives agents a fast first scan on the essential fields --- brand, class/type, ABV, proof, net contents, government warning, bottler, origin --- before they dig into details. For high volume, that first-pass triage saves time.
+\textbf{Speed and agent efficiency.} The system runs entirely locally --- no cloud API calls, no network latency. A single label check completes in seconds. For TTB agents handling $\sim$150k applications per year, that means a fast first scan on the essential fields (brand, class/type, ABV, proof, net contents, government warning, bottler, origin) before they dig into details. The agent gets an immediate Pass / Needs review / Fail per field and an overall status. Clear triage: obvious passes can move quickly; issues surface without manual line-by-line comparison. That first-pass automation saves time at scale.
 
-Technical innovations:
+\textbf{Better OCR from multiple passes.} Instead of a single OCR run, the system runs Tesseract three times on different preprocessed versions of the image (original, contrast-enhanced+sharpened, binarized). Each pass catches text the others miss. Results are merged and deduplicated: when two blocks overlap (same region on the label), we keep the one with higher confidence. Overlap is measured with IoU (Intersection over Union) --- the overlap area of two rectangles divided by their combined area; high IoU means ``same spot.'' Fuzzy similarity on the text helps decide when two blocks are duplicates even if OCR read them slightly differently. The result is more complete and cleaner extraction than a single pass.
 
-\begin{itemize}
-    \item \textbf{Multi-pass OCR:} Three Tesseract passes (original, CLAHE+sharpened, binarized) with different PSM modes. Each pass catches text the others miss; results are merged and deduplicated.
-    \item \textbf{IoU + fuzzy deduplication:} Overlapping blocks from multiple passes are merged using IoU and fuzzy similarity. The highest-confidence block is kept, so you get the best read without duplicate noise.
-    \item \textbf{Fuzzy matching with OCR tolerance:} Brand, class/type, and warning use rapidfuzz with configurable thresholds. OCR confusables (1/l, 0/O) and typos (Mat vs Malt) are handled so minor scan errors do not cause false fails.
-    \item \textbf{Government warning spell correction:} pyspellchecker corrects common OCR errors in the warning text before comparison, reducing false needs-review on minor misspellings.
-    \item \textbf{Config-driven rules:} Thresholds, patterns, and beverage-type rules live in \texttt{config/rules.yaml}. Tuning does not require code changes.
-    \item \textbf{Seven presets:} Test presets for spirits, beer, and wine match the sample images so agents can try the flow immediately.
-\end{itemize}
+\textbf{OCR-tolerant matching.} Label scans produce typos and confusables (1/l, 0/O, Mat vs Malt). The rule engine uses fuzzy matching (rapidfuzz) for brand, class/type, and government warning, with configurable pass/review thresholds. Minor OCR errors do not cause false fails. The government warning also gets spell correction before comparison, so common scan mistakes do not trigger unnecessary needs-review.
+
+\textbf{Config-driven, no-code tuning.} Thresholds, patterns, beverage-type rules, and standard-of-fill lists live in \texttt{config/rules.yaml}. Adjusting pass vs needs-review sensitivity or adding new class/type keywords does not require code changes.
 
 \section{Tools Used}
 

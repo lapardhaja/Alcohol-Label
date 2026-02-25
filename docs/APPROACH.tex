@@ -8,6 +8,7 @@
 \usepackage{xcolor}
 \usepackage{hyperref}
 \usepackage{parskip}
+\usepackage{tabularx}
 
 \geometry{margin=1in}
 \lstset{basicstyle=\ttfamily\small, breaklines=true, frame=single, backgroundcolor=\color{gray!10}}
@@ -85,7 +86,8 @@ Label image + Application data
 
 \begin{table}[h]
 \centering
-\begin{tabular}{lll}
+\small
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
 \toprule
 \textbf{Tool} & \textbf{Version / Notes} & \textbf{Purpose} \\
 \midrule
@@ -103,7 +105,7 @@ numpy & $\geq$1.24 & Array ops for preprocessing \\
 pytest & $\geq$7.0 & Unit tests \\
 Playwright & $\geq$1.40 & E2E approve-flow test (optional) \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{Deployment}

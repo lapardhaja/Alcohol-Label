@@ -1,59 +1,77 @@
-# TTB Alcohol Label Verification App
+# BottleProof
 
-Streamlit prototype for TTB label compliance agents: verify distilled spirits labels against application data using **local OCR** (Tesseract) and a **config-driven rule engine**. Single-label and batch workflows; checklist with Pass / Needs review / Fail and "Show on label" highlighting.
+A prototype app for TTB label compliance agents. Upload a label image and application data—BottleProof runs OCR on the label, extracts the key fields, and checks them against what you submitted. Pass / Needs review / Fail, with a checklist and "Show on label" highlighting so you can see exactly what the system picked up.
 
-## Setup
+**Try it live:** [bottleproof.streamlit.app](https://bottleproof.streamlit.app/)
 
-1. **Python 3.10+** and a virtual environment (recommended):
+---
 
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate   # Windows
-   # source .venv/bin/activate  # macOS/Linux
-   ```
+## Quick start (run it locally)
 
-2. **Install Tesseract OCR** (required to read text from label images):
+You’ll need Python 3.10+ and Tesseract OCR installed.
 
-   - **Windows:** [Download installer](https://github.com/UB-Mannheim/tesseract/wiki). Install to the default folder (`C:\Program Files\Tesseract-OCR`); the app will find it automatically. If you install elsewhere, add that folder to your system PATH.
-   - **macOS:** `brew install tesseract`
-   - **Linux:** `sudo apt install tesseract-ocr` (or equivalent)
+### 1. Clone and create a virtual environment
 
-   The app looks for Tesseract in standard install locations first, so adding it to PATH is only needed if you installed to a custom location. **For parity with Streamlit Cloud**, install Tesseract 5.3 (e.g. [UB-Mannheim Windows 5.3.3](https://github.com/UB-Mannheim/tesseract/wiki) or `apt install tesseract-ocr` on Debian 12 bookworm).
+```bash
+git clone <your-repo-url>
+cd "Alcohol Label"
 
-3. **Install dependencies**:
+python -m venv .venv
+.venv\Scripts\activate   # Windows
+# source .venv/bin/activate   # macOS/Linux
+```
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+### 2. Install Tesseract OCR
 
-4. **Run the app** (from project root):
+The app uses Tesseract to read text from label images. Install it on your system first:
 
-   ```bash
-   streamlit run app.py
-   ```
-   Or: `streamlit run src/app.py`
+- **Windows:** Download from [UB-Mannheim](https://github.com/UB-Mannheim/tesseract/wiki) and install to the default path (`C:\Program Files\Tesseract-OCR`). The app will find it there.
+- **macOS:** `brew install tesseract`
+- **Linux:** `sudo apt install tesseract-ocr`
 
-   Open the URL shown (e.g. http://localhost:8501).
+If you install Tesseract somewhere else, add that folder to your PATH.
 
-## Usage
+### 3. Install Python dependencies
 
-- **Single label**: Upload an image, fill application fields (brand, class/type, ABV, proof, net contents, bottler, etc.), click **Check label**. View overall status, checklist by category, and use **Show on label** to highlight the region used for each rule.
-- **Batch review**: Upload a **ZIP** of label images and a **CSV** with one row per label. CSV must include `label_id` (matching filename without extension, e.g. `label_001.png` → `label_001`) and application columns. Click **Run batch checks**, then filter by status and use **View detail** to open the full checklist for a label.
+```bash
+pip install -r requirements.txt
+```
 
-Example CSV columns: `label_id`, `brand_name`, `class_type`, `alcohol_pct`, `proof`, `net_contents_ml`, `bottler_name`, `bottler_city`, `bottler_state`, `imported`, `country_of_origin`, and optional flags (`sulfites_required`, `fd_c_yellow_5_required`, etc.). See `sample_data/batch_example.csv`. Sample images are in `sample_data/` (test_1.jpg through test_7) and `sample_data/test_images.zip`.
+### 4. Run the app
 
-## Approach, tools, assumptions
+From the project root:
 
-- **Stack**: Streamlit (UI), Tesseract via `pytesseract` (local OCR), Pillow/OpenCV (preprocess), YAML config (rules/thresholds), `rapidfuzz` (fuzzy match for brand/class), pandas (batch CSV).
-- **Pipeline**: Image → preprocess → OCR (blocks with bbox) → field extraction (brand, class/type, ABV, proof, net contents, warning, bottler, origin) → rule engine (Identity, Alcohol & contents, Warning, Origin, Other) → scoring (Ready to approve / Needs review / Critical issues).
-- **Nuance**: Brand and class/type use similarity thresholds (e.g. ≥0.95 pass, 0.80–0.95 needs review, &lt;0.80 fail) so "STONES THROW" vs "Stones Throw" can pass or need review instead of hard fail.
-- **Assumptions**: Standard of fill is a fixed list in config; "emphasized" warning is implemented as "GOVERNMENT WARNING" in caps in a distinct block; no DB—results in session only; batch runs sequentially.
-- **Trade-offs**: If Tesseract is unavailable, the app shows a clear error and install instructions (no fake results); prototype does not persist results or integrate with COLA.
+```bash
+streamlit run app.py
+```
 
-## Deploy
+Your browser will open (or go to the URL shown, usually `http://localhost:8501`).
 
-**Streamlit Community Cloud (Tesseract 5.3):** Uses `sources.list` + `packages.txt` to pull Tesseract 5.3 from Debian 12 (bookworm). Undocumented feature — see [Debian 11 EOL thread](https://discuss.streamlit.io/t/debian-11-eol/80690). Run `streamlit run app.py` from repo root.
+---
 
-## License
+## How to use it
 
-Take-home prototype; no production use without TTB approval.
+**Single label mode:** Upload a label image, fill in the application fields (brand, class/type, ABV, proof, net contents, bottler, etc.), then click **Check label**. You’ll get an overall status and a checklist by category. Use **Show on label** to see where each field was found on the image.
+
+**Batch mode:** Upload a ZIP of label images and a CSV with one row per label. The CSV needs a `label_id` column that matches the filename without extension (e.g. `test_1.png` → `test_1`). Click **Check labels**, then filter by status and use **Show details** to drill into any label.
+
+Example CSV columns: `label_id`, `brand_name`, `class_type`, `alcohol_pct`, `proof`, `net_contents_ml`, `bottler_name`, `bottler_city`, `bottler_state`, `imported`, `country_of_origin`, `beverage_type`. See `sample_data/batch_example.csv` for a full example. Sample images are in `sample_data/` and `sample_data/test_images.zip`.
+
+---
+
+## Tech notes
+
+- **Stack:** Streamlit, Tesseract (local OCR), Pillow/OpenCV for preprocessing, YAML-driven rules, rapidfuzz for fuzzy matching.
+- **Flow:** Image → preprocess → OCR → extract fields → run rules → score (Ready to approve / Needs review / Critical issues).
+- Brand and class/type use fuzzy matching, so small differences like "STONE'S THROW" vs "Stone's Throw" can still pass or get a needs-review flag instead of a hard fail.
+- Results are in-session only; nothing is persisted. No COLA integration.
+
+---
+
+## Deploying to Streamlit Cloud
+
+The app uses `packages.txt` and `sources.list` to install Tesseract 5.3 on Streamlit Community Cloud. Point the app at this repo and run `streamlit run app.py` from the root. See the [Debian 11 EOL thread](https://discuss.streamlit.io/t/debian-11-eol/80690) for context on the Tesseract setup.
+
+---
+
+Take-home prototype. Not for production use without TTB approval.

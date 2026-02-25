@@ -50,6 +50,9 @@ st.markdown(
     .status-fail { background: #f8d7da; color: #721c24; border: 2px solid #dc3545; }
     [class*="approve_btn"] button { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; }
     [class*="decline_btn"] button { background-color: #dc3545 !important; border-color: #dc3545 !important; color: white !important; }
+    [class*="batch_approve"] button { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; }
+    [class*="batch_decline"] button { background-color: #dc3545 !important; border-color: #dc3545 !important; color: white !important; }
+    [class*="batch_approve"] button:hover, [class*="batch_decline"] button:hover { filter: brightness(1.1); }
     html, .stApp { scrollbar-width: 14px; }
     ::-webkit-scrollbar { width: 14px; height: 14px; }
     ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 7px; }
@@ -1506,33 +1509,38 @@ def _batch_screen():
                 height=0,
             )
 
-        df_display = pd.DataFrame(
-            [
-                {
-                    "label_id": r["label_id"],
-                    "brand_name": r["brand_name"],
-                    "class_type": r["class_type"],
-                    "overall_status": r["overall_status"],
-                    "failed_rules": r["fail_count"],
-                    "decision": batch_decisions.get(r["label_id"], "—"),
-                }
-                for r in batch_results
-            ]
-        )
         status_filter = st.selectbox(
             "Filter by status",
             ["All", "Critical issues", "Needs review", "Ready to approve"],
             key="batch_filter",
         )
-        if status_filter != "All":
-            df_display = df_display[df_display["overall_status"] == status_filter]
-        st.dataframe(df_display, width="stretch", hide_index=True)
+        filtered_results = (
+            [r for r in batch_results if r["overall_status"] == status_filter]
+            if status_filter != "All"
+            else batch_results
+        )
 
         st.markdown("**Decisions**")
-        for r in batch_results:
+        header_cols = st.columns([1.2, 2, 2, 1.2, 1.8, 2, 1.2])
+        with header_cols[0]:
+            st.markdown("**Label ID**")
+        with header_cols[1]:
+            st.markdown("**Brand Name**")
+        with header_cols[2]:
+            st.markdown("**Class Type**")
+        with header_cols[3]:
+            st.markdown("**Status**")
+        with header_cols[4]:
+            st.markdown('<span style="white-space: nowrap;">**# of Failed Rules**</span>', unsafe_allow_html=True)
+        with header_cols[5]:
+            st.markdown("**Decision**")
+        with header_cols[6]:
+            st.markdown("")
+        st.divider()
+        for r in filtered_results:
             lid = r["label_id"]
             dec = batch_decisions.get(lid)
-            cols = st.columns([1.2, 2, 2, 1.2, 0.8, 2, 1.2])
+            cols = st.columns([1.2, 2, 2, 1.2, 1.8, 2, 1.2])
             with cols[0]:
                 st.text(lid)
             with cols[1]:
@@ -1559,16 +1567,19 @@ def _batch_screen():
                         st.session_state["batch_decisions"] = d
                         st.rerun()
                 else:
-                    if st.button("Approve", key=f"batch_approve_{lid}", type="primary"):
-                        d = dict(st.session_state.get("batch_decisions", {}))
-                        d[lid] = "approved"
-                        st.session_state["batch_decisions"] = d
-                        st.rerun()
-                    if st.button("Decline", key=f"batch_decline_{lid}"):
-                        d = dict(st.session_state.get("batch_decisions", {}))
-                        d[lid] = "declined"
-                        st.session_state["batch_decisions"] = d
-                        st.rerun()
+                    btn_cols = st.columns(2)
+                    with btn_cols[0]:
+                        if st.button("Approve", key=f"batch_approve_{lid}"):
+                            d = dict(st.session_state.get("batch_decisions", {}))
+                            d[lid] = "approved"
+                            st.session_state["batch_decisions"] = d
+                            st.rerun()
+                    with btn_cols[1]:
+                        if st.button("Decline", key=f"batch_decline_{lid}"):
+                            d = dict(st.session_state.get("batch_decisions", {}))
+                            d[lid] = "declined"
+                            st.session_state["batch_decisions"] = d
+                            st.rerun()
             with cols[6]:
                 if st.button("Show details", key=f"batch_show_{lid}"):
                     st.session_state["batch_selected_id"] = lid

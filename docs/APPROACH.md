@@ -68,21 +68,30 @@ Label image + Application data
 
 ## Tools Used
 
-| Tool | Version / Notes | Purpose |
-|------|-----------------|---------|
-| **Python** | 3.10+ | Runtime |
-| **Streamlit** | ≥1.28 | Web UI |
-| **Tesseract OCR** | 5.x (system-installed) | Text recognition from label images |
-| **pytesseract** | ≥0.3.10 | Python bindings for Tesseract |
-| **OpenCV** (opencv-python-headless) | ≥4.8 | Image preprocessing: deskew, CLAHE, sharpen, binarization (Otsu) |
-| **Pillow** | ≥10.0 | Image I/O, resize |
-| **PyYAML** | ≥6.0 | Load `config/rules.yaml` |
-| **rapidfuzz** | ≥3.0 | Fuzzy string matching (brand, class/type, warning) |
-| **pyspellchecker** | ≥0.8.0 | OCR error correction in government warning text |
-| **pandas** | ≥2.0 | CSV parsing for batch mode |
-| **numpy** | ≥1.24 | Array ops for preprocessing |
-| **pytest** | ≥7.0 | Unit tests |
-| **Playwright** | ≥1.40 | E2E approve-flow test (optional) |
+<div style="overflow-x: auto; max-width: 100%;">
+
+<table style="width: 100%; table-layout: fixed; overflow-wrap: break-word;">
+<thead>
+<tr><th style="width: 22%;">Tool</th><th style="width: 18%;">Version / Notes</th><th style="width: 60%;">Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Python</strong></td><td>3.10+</td><td>Runtime</td></tr>
+<tr><td><strong>Streamlit</strong></td><td>≥1.28</td><td>Web UI</td></tr>
+<tr><td><strong>Tesseract OCR</strong></td><td>5.x (system-installed)</td><td>Text recognition from label images</td></tr>
+<tr><td><strong>pytesseract</strong></td><td>≥0.3.10</td><td>Python bindings for Tesseract</td></tr>
+<tr><td><strong>OpenCV</strong> (opencv-python-headless)</td><td>≥4.8</td><td>Image preprocessing: deskew, CLAHE, sharpen, binarization (Otsu)</td></tr>
+<tr><td><strong>Pillow</strong></td><td>≥10.0</td><td>Image I/O, resize</td></tr>
+<tr><td><strong>PyYAML</strong></td><td>≥6.0</td><td>Load <code>config/rules.yaml</code></td></tr>
+<tr><td><strong>rapidfuzz</strong></td><td>≥3.0</td><td>Fuzzy string matching (brand, class/type, warning)</td></tr>
+<tr><td><strong>pyspellchecker</strong></td><td>≥0.8.0</td><td>OCR error correction in government warning text</td></tr>
+<tr><td><strong>pandas</strong></td><td>≥2.0</td><td>CSV parsing for batch mode</td></tr>
+<tr><td><strong>numpy</strong></td><td>≥1.24</td><td>Array ops for preprocessing</td></tr>
+<tr><td><strong>pytest</strong></td><td>≥7.0</td><td>Unit tests</td></tr>
+<tr><td><strong>Playwright</strong></td><td>≥1.40</td><td>E2E approve-flow test (optional)</td></tr>
+</tbody>
+</table>
+
+</div>
 
 ### Deployment
 

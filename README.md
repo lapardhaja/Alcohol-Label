@@ -86,4 +86,4 @@ Uses `packages.txt` and `sources.list` to install Tesseract 5.3. Point the app a
 
 ---
 
-TTB label compliance verification prototype. Not for production use without TTB approval. Developed by Servet Lapardhaja.
+Label compliance verification prototype. Developed by Servet Lapardhaja.

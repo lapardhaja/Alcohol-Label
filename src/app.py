@@ -1076,6 +1076,9 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
         }
         if label_html is not None:
             out["Label_html"] = label_html
+        bbox_ref = r.get("bbox_ref")
+        if bbox_ref is not None:
+            out["bbox_ref"] = bbox_ref
         return out
 
     rows: list[dict] = []
@@ -1139,8 +1142,8 @@ def _build_validation_matrix(rule_results: list, app_data: dict) -> list[dict]:
     return rows
 
 
-def _render_validation_matrix(rows: list[dict]) -> None:
-    """Render Criteria × Application × Label × Status table with color-coded status cells."""
+def _render_validation_matrix(rows: list[dict], result_key: str = "default") -> None:
+    """Render Criteria × Application × Label × Status table with color-coded status cells and Show on label."""
     if not rows:
         st.info("No validation results to display.")
         return
@@ -1188,12 +1191,27 @@ def _render_validation_matrix(rows: list[dict]) -> None:
     html.append("</tbody></table>")
     st.markdown("".join(html), unsafe_allow_html=True)
 
+    # Show on label: dropdown to highlight a field's bbox on the image
+    highlight_key = f"highlight_bbox_{result_key}"
+    options_with_bbox = [(r["Criteria"], r["bbox_ref"]) for r in rows if r.get("bbox_ref")]
+    if options_with_bbox:
+        labels = ["(none)"] + [o[0] for o in options_with_bbox]
+        bboxes = [None] + [o[1] for o in options_with_bbox]
+        idx = st.selectbox(
+            "Show on label",
+            range(len(labels)),
+            format_func=lambda i: labels[i],
+            key=f"show_on_label_{result_key}",
+        )
+        st.session_state[highlight_key] = bboxes[idx]
+
 
 def _render_single_result(
     result: dict,
     image_bytes: bytes | None,
     approve_reject: dict | None = None,
     app_data: dict | None = None,
+    result_key: str | None = None,
 ):
     """Render label check result: status banner, caption, image, validation matrix, checklist. approve_reject: {"entry", "selected_id"} to show Approve/Decline."""
     overall = result.get("overall_status", "—")
@@ -1316,7 +1334,10 @@ def _render_single_result(
         result.get("rule_results", []), resolved_app_data
     )
     st.subheader("Validation")
-    _render_validation_matrix(matrix_rows)
+    if result_key is None:
+        result_key = (approve_reject.get("selected_id") if approve_reject else None) or "single"
+    result_key = str(result_key)
+    _render_validation_matrix(matrix_rows, result_key=result_key)
     st.divider()
 
     img = result.get("image")
@@ -1328,8 +1349,14 @@ def _render_single_result(
     col_img, col_tabs = st.columns([1, 1])
 
     with col_img:
+        display_img = img
         if img is not None:
-            st.image(img, caption="Label image")
+            highlight_bbox = st.session_state.get(f"highlight_bbox_{result_key}")
+            if highlight_bbox:
+                from src.ui_utils import draw_bbox_on_image
+
+                display_img = draw_bbox_on_image(img, highlight_bbox, color="red", width=4)
+            st.image(display_img, caption="Label image")
         elif image_bytes:
             st.image(image_bytes, caption="Label image")
 
@@ -1607,7 +1634,10 @@ def _batch_screen():
             match = next((r for r in batch_results if r["label_id"] == selected_id), None)
             if match and match.get("result"):
                 _render_single_result(
-                    match["result"], None, app_data=match.get("app_data") or {}
+                    match["result"],
+                    None,
+                    app_data=match.get("app_data") or {},
+                    result_key=f"batch_{selected_id}",
                 )
             elif match and match.get("error"):
                 st.error(match["error"])

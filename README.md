@@ -56,7 +56,7 @@ Browser opens at `http://localhost:8501`.
 
 ## How to use
 
-**Single label:** Upload an image, fill application fields (brand, class/type, ABV, proof, net contents, bottler, etc.), click **Check label**. Get overall status and checklist by category. Use **Show on label** to see where each field was found.
+**Single label:** Upload an image, fill application fields (brand, class/type, ABV, proof, net contents, bottler, etc.), click **Check label**. Use the preset dropdown to load one of seven test presets (spirits, beer, wine) that match sample images in `sample_data/`. Get overall status and checklist by category. Use **Show on label** to see where each field was found.
 
 **Batch:** Upload a ZIP of images + CSV with one row per label. CSV must have `label_id` matching filename (e.g. `test_1.png` → `test_1`). Filter by status, drill into details.
 

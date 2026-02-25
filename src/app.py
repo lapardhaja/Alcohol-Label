@@ -676,6 +676,40 @@ def _single_label_screen():
             "result": {k: v for k, v in result.items() if k != "image"},
         }
         _render_single_result(result, image_bytes, approve_reject={"entry": entry, "selected_id": None}, app_data=app_data)
+
+        # Replace image: upload a different photo and re-check with same application data
+        st.divider()
+        st.markdown("**Upload a different photo**")
+        st.markdown(
+            """
+            <style>
+            div[data-testid="stFormSubmitButton"] button {
+                background-color: #28a745 !important; border-color: #28a745 !important; color: white !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        with st.form("replace_image_form", clear_on_submit=False):
+            replace_upload = st.file_uploader(
+                "Replace label image",
+                type=["png", "jpg", "jpeg"],
+                key="replace_upload",
+                help="Upload another photo to re-check with the same application data.",
+            )
+            replace_submitted = st.form_submit_button("Check label", type="primary")
+        if replace_submitted and replace_upload is not None:
+            with st.spinner("Analyzing label..."):
+                try:
+                    from src.pipeline import run_pipeline
+                    new_result = run_pipeline(replace_upload.getvalue(), app_data)
+                    st.session_state["last_single_result"] = new_result
+                    st.session_state["last_single_image_bytes"] = replace_upload.getvalue()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Analysis failed: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
         return
 
     st.caption("Upload a label and click **Check label**.")

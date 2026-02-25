@@ -47,7 +47,7 @@ playwright install
 
 ```bash
 python scripts/run.py
-# or: streamlit run app.py (with venv activated)
+# or: python -m streamlit run app.py (with venv activated)
 ```
 
 Browser opens at `http://localhost:8501`.
@@ -82,7 +82,7 @@ Browser opens at `http://localhost:8501`.
 
 ## Deploy (Streamlit Cloud)
 
-Uses `packages.txt` and `sources.list` to install Tesseract 5.3. Point the app at this repo, run `streamlit run app.py` from root.
+Uses `packages.txt` and `sources.list` to install Tesseract 5.3. Point the app at this repo, run `python -m streamlit run app.py` from root.
 
 ---
 

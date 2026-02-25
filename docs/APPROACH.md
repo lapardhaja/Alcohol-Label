@@ -46,6 +46,21 @@ Label image + Application data
 
 ---
 
+## Innovations
+
+The system is designed for speed and agent efficiency. It runs entirely locally (no cloud API calls), so a single label check completes in seconds. That gives agents a fast first scan on the essential fields — brand, class/type, ABV, proof, net contents, government warning, bottler, origin — before they dig into details. For high volume, that first-pass triage saves time.
+
+Technical innovations:
+
+- **Multi-pass OCR** — Three Tesseract passes (original, CLAHE+sharpened, binarized) with different PSM modes. Each pass catches text the others miss; results are merged and deduplicated.
+- **IoU + fuzzy deduplication** — Overlapping blocks from multiple passes are merged using IoU and fuzzy similarity. The highest-confidence block is kept, so you get the best read without duplicate noise.
+- **Fuzzy matching with OCR tolerance** — Brand, class/type, and warning use rapidfuzz with configurable thresholds. OCR confusables (1/l, 0/O) and typos (Mat vs Malt) are handled so minor scan errors do not cause false fails.
+- **Government warning spell correction** — pyspellchecker corrects common OCR errors in the warning text before comparison, reducing false needs-review on minor misspellings.
+- **Config-driven rules** — Thresholds, patterns, and beverage-type rules live in `config/rules.yaml`. Tuning does not require code changes.
+- **Seven presets** — Test presets for spirits, beer, and wine match the sample images so agents can try the flow immediately.
+
+---
+
 ## Tools Used
 
 <div style="overflow-x: auto; max-width: 100%;">

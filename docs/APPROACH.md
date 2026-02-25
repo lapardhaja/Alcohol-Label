@@ -1,41 +1,187 @@
-# Approach and design
+# BottleProof — Approach, Tools, Assumptions & Limitations
 
-## Purpose
+## What We Are Doing
 
-TTB agents review ~150k label applications per year. This app reduces routine "does the label match the form?" work by running local OCR and a rule engine, then presenting a human-review-friendly checklist with Pass / Needs review / Fail and visual linking to the label.
+BottleProof is a **TTB (Alcohol and Tobacco Tax and Trade Bureau) label compliance verification prototype**. It automates the routine "does the label match the application?" workflow that TTB agents perform on ~150k label applications per year.
 
-## Architecture
+**Core task:** Given a label image and the application data (what the producer submitted), the system:
+1. Reads text from the label image via OCR
+2. Extracts key fields (brand, class/type, ABV, proof, net contents, government warning, bottler, country of origin)
+3. Compares extracted values to application data using configurable rules
+4. Produces a human-review-friendly checklist with Pass / Needs review / Fail per field
 
-- **Single codebase**: Streamlit app plus Python modules (OCR, extraction, rules, scoring). No separate backend service.
-- **Local OCR**: Tesseract only; no cloud APIs (avoids firewall and latency issues; target ~5 s per label).
-- **Rule engine**: Pure Python; reads `config/rules.yaml` for similarity thresholds, warning text, and patterns. Rules return status, message, and bbox_ref for "Show on label".
-- **Scoring**: Any Fail → "Critical issues"; else any Needs review → "Needs review"; else "Ready to approve".
+**Output:** Overall status (Ready to approve / Needs review / Critical issues) and a per-field checklist.
 
-## Data flow
+---
 
-1. **Input**: Label image (file/bytes) + application data (form or CSV row).
-2. **OCR**: Preprocess (resize, optional contrast) → Tesseract → list of text blocks with bbox and confidence.
-3. **Extraction**: Heuristics and regex to find candidates for brand, class/type, ABV, proof, net contents, government warning, bottler, country of origin.
-4. **Rules**: Compare extracted values to application and config; fuzzy match for brand/class; exact/semantic checks for warning and origin.
-5. **Output**: Checklist by category + overall status + bbox refs for UI highlighting.
+## How It Works
 
-## TTB checklist coverage
+### The process (plain language)
 
-- **Identity**: Brand and class/type present and match (fuzzy).
-- **Alcohol & contents**: ABV and proof present and match; net contents present and metric.
-- **Warning**: Full statement present; "GOVERNMENT WARNING" in caps; wording per config.
-- **Origin**: Bottler/producer; if imported, country of origin.
-- **Other**: Conditional statements (sulfites, colorings, wood, age, neutral spirits) when required by application flags.
+**What you do:** Upload a photo or scan of an alcohol label, plus the application data (what the producer submitted to TTB).
+
+**What the system does:**
+
+1. **Image cleanup** — Straightens the image, improves contrast and sharpness so text is easier to read. If the label is crooked or faded, this step helps.
+
+2. **Text recognition (OCR)** — Reads all visible text from the label. It runs multiple passes with different settings to catch as much as possible.
+
+3. **Merge duplicates** — Removes repeated or overlapping text blocks so each piece of text is counted once.
+
+4. **Field extraction** — Figures out *which* text belongs to *which* field. For example: "Is this the brand name? The ABV? The government warning?" It uses layout rules (where things usually appear) and common patterns (e.g. "Distilled by" before a bottler name).
+
+5. **Rule comparison** — Compares what it found to what the producer submitted. For each field: exact match = Pass, close match = Needs review, mismatch or missing = Fail.
+
+6. **Overall verdict** — If any field fails → Critical issues. If any needs review → Needs review. Otherwise → Ready to approve.
+
+**You get:** A checklist showing Pass/Needs review/Fail for each field, plus an overall status.
+
+---
+
+### Single vs batch mode
+
+- **Single label:** Upload one image, fill in the application fields in the form, click "Check label". You get one result.
+- **Batch:** Upload a ZIP of images plus a CSV with one row per label. The CSV needs a `label_id` column that matches the filename (e.g. `test_1.png` → `test_1`). Filter by status, drill into details for any label.
+
+---
+
+### Approve flow (optional)
+
+The app supports an approve/reject workflow: applications can be moved between "Under review", "Approved", and "Rejected". State is saved in `data/applications.json` (local file, offline, no external APIs).
+
+---
+
+### Technical flow (for developers)
+
+```
+Label image + Application data
+    → Preprocess (resize, deskew, CLAHE, sharpen, binarize)
+    → Tesseract OCR (multi-pass: PSM 3, 6 on original/sharpened/binary)
+    → Deduplicate blocks (IoU + fuzzy similarity)
+    → Field extraction (heuristics, regex, spatial layout)
+    → Rule engine (compare extracted vs application; config-driven thresholds)
+    → Scoring (any Fail → Critical; any Needs review → Needs review; else Ready to approve)
+    → UI: checklist
+```
+
+---
+
+## Tools Used
+
+| Tool | Version / Notes | Purpose |
+|------|-----------------|---------|
+| **Python** | 3.10+ | Runtime |
+| **Streamlit** | ≥1.28 | Web UI |
+| **Tesseract OCR** | 5.x (system-installed) | Text recognition from label images |
+| **pytesseract** | ≥0.3.10 | Python bindings for Tesseract |
+| **OpenCV** (opencv-python-headless) | ≥4.8 | Image preprocessing: deskew, CLAHE, sharpen, binarization (Otsu) |
+| **Pillow** | ≥10.0 | Image I/O, resize |
+| **PyYAML** | ≥6.0 | Load `config/rules.yaml` |
+| **rapidfuzz** | ≥3.0 | Fuzzy string matching (brand, class/type, warning) |
+| **pyspellchecker** | ≥0.8.0 | OCR error correction in government warning text |
+| **pandas** | ≥2.0 | CSV parsing for batch mode |
+| **numpy** | ≥1.24 | Array ops for preprocessing |
+| **pytest** | ≥7.0 | Unit tests |
+| **Playwright** | ≥1.40 | E2E approve-flow test (optional) |
+
+### Deployment
+
+- **Streamlit Cloud:** `packages.txt` + `sources.list` install Tesseract 5.3 on Debian (bookworm).
+
+---
+
+## Assumptions Made
+
+### Input data
+
+- Label images are **flat** (front/back label photos or scans), not 3D bottle shots.
+- Application data is provided **manually** (form or CSV) — no COLA integration.
+- **Beverage type** is known (spirits / wine / beer) and drives which rules apply (e.g. proof optional for spirits, ABV optional for beer).
+
+### OCR & extraction
+
+- Tesseract is sufficient for typical label layout and fonts; no cloud OCR.
+- Text is mostly **left-to-right, top-to-bottom**; multi-column layouts are handled by splitting on large horizontal gaps.
+- **Government warning** is typically in a distinct column; Serving Facts / nutrition panel is separated by spatial filtering and keyword exclusion.
+- **Brand** extraction uses domain suffixes (Distillery, Brewery, Winery, etc.) and strips corp suffixes (Inc, LLC, Co).
+- **Class/type** uses a fixed keyword list (27 CFR Parts 4, 5, 7) from config; extraction stops at non-class content (ABV, bottler, etc.).
+- **Net contents** supports metric (mL, L) and imperial (fl oz, qt, pt, gal); compound values (e.g. "1 PINT 8 FL OZ") are converted.
+- **Bottler** is found via header patterns (Distilled and Bottled by, Produced by, etc.) or fallback (CompanyName, City, ST).
+
+### Rules & scoring
+
+- **Brand** and **class/type** use fuzzy matching (rapidfuzz) with configurable thresholds (pass ≥90%, needs review ≥70%).
+- **Government warning** must contain required wording; semantic checks allow minor OCR variations.
+- **Net contents** are validated against a fixed list of standard-of-fill values (27 CFR 5.203) in config.
+- **Origin** rules: bottler required; country of origin required when `imported=true`.
+- **Conditional statements** (sulfites, FD&C Yellow No. 5, carmine, wood treatment, age, neutral spirits) are required when application flags say so.
+
+### Data & persistence
+
+- **Batch results** are in-session only; no persistence.
+- **Approve flow** is persisted in `data/applications.json` (gitignored).
+
+---
 
 ## Limitations
 
-- Standard of fill: fixed list in config, not full CFR logic.
-- Emphasized warning: caps and distinct block only; no font-size detection.
-- Batch: sequential processing; no persistence.
-- Test labels: use generated or sourced images; no built-in dataset.
+### OCR & extraction
+
+- **No font-size detection** — emphasized warning cannot be checked for font size.
+- **Standard of fill** — fixed list in config, not full CFR logic.
+- **Handwritten / low-quality images** — OCR may fail or produce poor output.
+- **Non-standard layouts** — unusual label designs may confuse extraction heuristics.
+- **Class/type** — relies on keyword list; novel or regional variants may not match.
+
+### Rules
+
+- **Emphasized warning** — only checks for caps and distinct block; no font-size enforcement.
+- **Conditional statements** — regex-based; complex phrasing may not match.
+- **Age statement** — whisky age threshold (4 years) is config-driven; no full CFR 5.40(a) logic.
+
+### System
+
+- **No COLA integration** — application data is manual; no lookup of approved labels.
+- **Batch** — sequential processing; no parallelization.
+- **Test labels** — sample images are provided; no built-in benchmark dataset.
+
+---
 
 ## Extensibility
 
-- Swap or add OCR by replacing `ocr.run_ocr()`.
-- Add rules or categories by extending `rules/engine.py` and `config/rules.yaml`.
-- Expose `pipeline.run_pipeline()` as an API later for COLA integration.
+- **OCR:** Swap `ocr.run_ocr()` for another engine (e.g. cloud API).
+- **Rules:** Extend `rules/engine.py` and `config/rules.yaml` for new categories or thresholds.
+- **API:** Expose `pipeline.run_pipeline()` for COLA or external integration.
+
+---
+
+## File Structure
+
+```
+app.py                 # Entry point (streamlit run app.py)
+src/
+  app.py               # Streamlit UI
+  ocr.py               # Tesseract + preprocessing
+  extraction.py        # Field extraction from OCR blocks
+  pipeline.py          # Orchestration: OCR → extraction → rules → scoring
+  scoring.py           # Overall status from rule results
+  storage.py           # Local JSON for approve flow
+  ui_utils.py          # UI helpers
+  rules/
+    engine.py          # Rule evaluation (identity, alcohol, warning, origin, other)
+config/
+  rules.yaml           # Thresholds, patterns, beverage types, conditionals
+sample_data/
+  batch_example.csv    # Example batch CSV
+  test_1.jpg...        # Sample label images
+  test_images.zip      # Same images for batch ZIP upload
+```
+
+---
+
+## References
+
+- 27 CFR Part 4 (Wine labels)
+- 27 CFR Part 5 (Distilled spirits labels)
+- 27 CFR Part 7 (Malt Beverage labels)
+- TTB Beverage Alcohol Manual (BAM)

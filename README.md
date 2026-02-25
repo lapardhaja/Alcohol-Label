@@ -1,76 +1,88 @@
 # BottleProof
 
-A prototype app for TTB label compliance agents. Upload a label image and application data—BottleProof runs OCR on the label, extracts the key fields, and checks them against what you submitted. Pass / Needs review / Fail, with a checklist and "Show on label" highlighting so you can see exactly what the system picked up.
+TTB label compliance verification prototype. Upload a label image and application data — BottleProof runs OCR, extracts key fields, and checks them against what you submitted. Pass / Needs review / Fail per field, with a checklist and "Show on label" highlighting.
 
-**Try it live:** [bottleproof.streamlit.app](https://bottleproof.streamlit.app/)
+**Live demo:** [bottleproof.streamlit.app](https://bottleproof.streamlit.app/)
+
+**Full documentation:** [docs/APPROACH.md](docs/APPROACH.md) — approach, tools, assumptions, limitations.
 
 ---
 
-## Quick start (run it locally)
+## Quick start
 
-You’ll need Python 3.10+ and Tesseract OCR installed.
+Requires **Python 3.10+** and **Tesseract OCR**.
 
-### 1. Clone and create a virtual environment
+### 1. Clone and setup
 
+**Option A — Python (cross-platform):**
 ```bash
 git clone <your-repo-url>
 cd "Alcohol Label"
-
-python -m venv .venv
-.venv\Scripts\activate   # Windows
-# source .venv/bin/activate   # macOS/Linux
+python setup.py    # or python3 on Mac/Linux
+python run.py     # start the app
 ```
+
+**Option B — Platform scripts:**
+- **Windows:** `setup.bat` then `run.bat`
+- **Mac/Linux:** `./setup.sh` then `./run.sh`
 
 ### 2. Install Tesseract OCR
 
-The app uses Tesseract to read text from label images. Install it on your system first:
+Tesseract reads text from label images. Install on your system:
 
-- **Windows:** Download from [UB-Mannheim](https://github.com/UB-Mannheim/tesseract/wiki) and install to the default path (`C:\Program Files\Tesseract-OCR`). The app will find it there.
+- **Windows:** [UB-Mannheim](https://github.com/UB-Mannheim/tesseract/wiki) — install to `C:\Program Files\Tesseract-OCR`
 - **macOS:** `brew install tesseract`
 - **Linux:** `sudo apt install tesseract-ocr`
 
-If you install Tesseract somewhere else, add that folder to your PATH.
+If installed elsewhere, add it to PATH.
 
-### 3. Install Python dependencies
+### 3. Optional: E2E test
 
+For the approve-flow test (`python tests/test_approve_flow.py`):
 ```bash
-pip install -r requirements.txt
+playwright install
 ```
 
-### 4. Run the app
-
-From the project root:
+### 4. Run
 
 ```bash
-streamlit run app.py
+python run.py
+# or: streamlit run app.py (with venv activated)
 ```
 
-Your browser will open (or go to the URL shown, usually `http://localhost:8501`).
+Browser opens at `http://localhost:8501`.
 
 ---
 
-## How to use it
+## How to use
 
-**Single label mode:** Upload a label image, fill in the application fields (brand, class/type, ABV, proof, net contents, bottler, etc.), then click **Check label**. You’ll get an overall status and a checklist by category. Use **Show on label** to see where each field was found on the image.
+**Single label:** Upload an image, fill application fields (brand, class/type, ABV, proof, net contents, bottler, etc.), click **Check label**. Get overall status and checklist by category. Use **Show on label** to see where each field was found.
 
-**Batch mode:** Upload a ZIP of label images and a CSV with one row per label. The CSV needs a `label_id` column that matches the filename without extension (e.g. `test_1.png` → `test_1`). Click **Check labels**, then filter by status and use **Show details** to drill into any label.
+**Batch:** Upload a ZIP of images + CSV with one row per label. CSV must have `label_id` matching filename (e.g. `test_1.png` → `test_1`). Filter by status, drill into details.
 
-Example CSV columns: `label_id`, `brand_name`, `class_type`, `alcohol_pct`, `proof`, `net_contents_ml`, `bottler_name`, `bottler_city`, `bottler_state`, `imported`, `country_of_origin`, `beverage_type`. See `sample_data/batch_example.csv` for a full example. Sample images are in `sample_data/` and `sample_data/test_images.zip`.
+**CSV columns:** `label_id`, `brand_name`, `class_type`, `alcohol_pct`, `proof`, `net_contents_ml`, `bottler_name`, `bottler_city`, `bottler_state`, `imported`, `country_of_origin`, `beverage_type`. See `sample_data/batch_example.csv`. Sample images in `sample_data/` and `sample_data/test_images.zip`.
 
----
-
-## Tech notes
-
-- **Stack:** Streamlit, Tesseract (local OCR), Pillow/OpenCV for preprocessing, YAML-driven rules, rapidfuzz for fuzzy matching.
-- **Flow:** Image → preprocess → OCR → extract fields → run rules → score (Ready to approve / Needs review / Critical issues).
-- Brand and class/type use fuzzy matching, so small differences like "STONE'S THROW" vs "Stone's Throw" can still pass or get a needs-review flag instead of a hard fail.
-- Results are in-session only; nothing is persisted. No COLA integration.
+**Approve flow:** Move applications between Under review / Approved / Rejected. State saved in `data/applications.json` (local, offline).
 
 ---
 
-## Deploying to Streamlit Cloud
+## Tech stack
 
-The app uses `packages.txt` and `sources.list` to install Tesseract 5.3 on Streamlit Community Cloud. Point the app at this repo and run `streamlit run app.py` from the root. See the [Debian 11 EOL thread](https://discuss.streamlit.io/t/debian-11-eol/80690) for context on the Tesseract setup.
+| Component | Tool |
+|-----------|------|
+| UI | Streamlit |
+| OCR | Tesseract (local) |
+| Preprocessing | OpenCV, Pillow |
+| Rules | YAML config, rapidfuzz |
+| Batch CSV | pandas |
+
+**Flow:** Image → preprocess → OCR → extract fields → run rules → score (Ready to approve / Needs review / Critical issues). Brand and class/type use fuzzy matching; small differences may pass or flag needs review.
+
+---
+
+## Deploy (Streamlit Cloud)
+
+Uses `packages.txt` and `sources.list` to install Tesseract 5.3. Point the app at this repo, run `streamlit run app.py` from root. See [Debian 11 EOL thread](https://discuss.streamlit.io/t/debian-11-eol/80690) for Tesseract setup.
 
 ---
 

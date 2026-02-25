@@ -1,0 +1,221 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{parskip}
+
+\geometry{margin=1in}
+\lstset{basicstyle=\ttfamily\small, breaklines=true, frame=single, backgroundcolor=\color{gray!10}}
+
+\title{BottleProof\\Approach, Tools, Assumptions \& Limitations}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{What We Are Doing}
+
+BottleProof is a \textbf{TTB (Alcohol and Tobacco Tax and Trade Bureau) label compliance verification prototype}. It automates the routine ``does the label match the application?'' workflow that TTB agents perform on $\sim$150k label applications per year.
+
+\textbf{Core task:} Given a label image and the application data (what the producer submitted), the system:
+\begin{enumerate}
+    \item Reads text from the label image via OCR
+    \item Extracts key fields (brand, class/type, ABV, proof, net contents, government warning, bottler, country of origin)
+    \item Compares extracted values to application data using configurable rules
+    \item Produces a human-review-friendly checklist with Pass / Needs review / Fail per field
+\end{enumerate}
+
+\textbf{Output:} Overall status (Ready to approve / Needs review / Critical issues) and a per-field checklist.
+
+\section{How It Works}
+
+\subsection{The process (plain language)}
+
+\textbf{What you do:} Upload a photo or scan of an alcohol label, plus the application data (what the producer submitted to TTB).
+
+\textbf{What the system does:}
+
+\begin{enumerate}
+    \item \textbf{Image cleanup} --- Straightens the image, improves contrast and sharpness so text is easier to read. If the label is crooked or faded, this step helps.
+    
+    \item \textbf{Text recognition (OCR)} --- Reads all visible text from the label. It runs multiple passes with different settings to catch as much as possible.
+    
+    \item \textbf{Merge duplicates} --- Removes repeated or overlapping text blocks so each piece of text is counted once.
+    
+    \item \textbf{Field extraction} --- Figures out \textit{which} text belongs to \textit{which} field. For example: ``Is this the brand name? The ABV? The government warning?'' It uses layout rules (where things usually appear) and common patterns (e.g.\ ``Distilled by'' before a bottler name).
+    
+    \item \textbf{Rule comparison} --- Compares what it found to what the producer submitted. For each field: exact match = Pass, close match = Needs review, mismatch or missing = Fail.
+    
+    \item \textbf{Overall verdict} --- If any field fails $\rightarrow$ Critical issues. If any needs review $\rightarrow$ Needs review. Otherwise $\rightarrow$ Ready to approve.
+\end{enumerate}
+
+\textbf{You get:} A checklist showing Pass/Needs review/Fail for each field, plus an overall status.
+
+\subsection{Single vs batch mode}
+
+\begin{itemize}
+    \item \textbf{Single label:} Upload one image, fill in the application fields in the form, click ``Check label''. You get one result.
+    \item \textbf{Batch:} Upload a ZIP of images plus a CSV with one row per label. The CSV needs a \texttt{label\_id} column that matches the filename (e.g.\ \texttt{test\_1.png} $\rightarrow$ \texttt{test\_1}). Filter by status, drill into details for any label.
+\end{itemize}
+
+\subsection{Approve flow (optional)}
+
+The app supports an approve/reject workflow: applications can be moved between ``Under review'', ``Approved'', and ``Rejected''. State is saved in \texttt{data/applications.json} (local file, offline, no external APIs).
+
+\subsection{Technical flow (for developers)}
+
+\begin{lstlisting}
+Label image + Application data
+    -> Preprocess (resize, deskew, CLAHE, sharpen, binarize)
+    -> Tesseract OCR (multi-pass: PSM 3, 6 on original/sharpened/binary)
+    -> Deduplicate blocks (IoU + fuzzy similarity)
+    -> Field extraction (heuristics, regex, spatial layout)
+    -> Rule engine (compare extracted vs application; config-driven thresholds)
+    -> Scoring (any Fail -> Critical; any Needs review -> Needs review; else Ready to approve)
+    -> UI: checklist
+\end{lstlisting}
+
+\section{Tools Used}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Tool} & \textbf{Version / Notes} & \textbf{Purpose} \\
+\midrule
+Python & 3.10+ & Runtime \\
+Streamlit & $\geq$1.28 & Web UI \\
+Tesseract OCR & 5.x (system-installed) & Text recognition from label images \\
+pytesseract & $\geq$0.3.10 & Python bindings for Tesseract \\
+OpenCV (opencv-python-headless) & $\geq$4.8 & Image preprocessing: deskew, CLAHE, sharpen, binarization (Otsu) \\
+Pillow & $\geq$10.0 & Image I/O, resize \\
+PyYAML & $\geq$6.0 & Load \texttt{config/rules.yaml} \\
+rapidfuzz & $\geq$3.0 & Fuzzy string matching (brand, class/type, warning) \\
+pyspellchecker & $\geq$0.8.0 & OCR error correction in government warning text \\
+pandas & $\geq$2.0 & CSV parsing for batch mode \\
+numpy & $\geq$1.24 & Array ops for preprocessing \\
+pytest & $\geq$7.0 & Unit tests \\
+Playwright & $\geq$1.40 & E2E approve-flow test (optional) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Deployment}
+
+\begin{itemize}
+    \item \textbf{Streamlit Cloud:} \texttt{packages.txt} + \texttt{sources.list} install Tesseract 5.3 on Debian (bookworm).
+\end{itemize}
+
+\section{Assumptions Made}
+
+\subsection{Input data}
+
+\begin{itemize}
+    \item Label images are \textbf{flat} (front/back label photos or scans), not 3D bottle shots.
+    \item Application data is provided \textbf{manually} (form or CSV) --- no COLA integration.
+    \item \textbf{Beverage type} is known (spirits / wine / beer) and drives which rules apply (e.g.\ proof optional for spirits, ABV optional for beer).
+\end{itemize}
+
+\subsection{OCR \& extraction}
+
+\begin{itemize}
+    \item Tesseract is sufficient for typical label layout and fonts; no cloud OCR.
+    \item Text is mostly \textbf{left-to-right, top-to-bottom}; multi-column layouts are handled by splitting on large horizontal gaps.
+    \item \textbf{Government warning} is typically in a distinct column; Serving Facts / nutrition panel is separated by spatial filtering and keyword exclusion.
+    \item \textbf{Brand} extraction uses domain suffixes (Distillery, Brewery, Winery, etc.) and strips corp suffixes (Inc, LLC, Co).
+    \item \textbf{Class/type} uses a fixed keyword list (27 CFR Parts 4, 5, 7) from config; extraction stops at non-class content (ABV, bottler, etc.).
+    \item \textbf{Net contents} supports metric (mL, L) and imperial (fl oz, qt, pt, gal); compound values (e.g.\ ``1 PINT 8 FL OZ'') are converted.
+    \item \textbf{Bottler} is found via header patterns (Distilled and Bottled by, Produced by, etc.) or fallback (CompanyName, City, ST).
+\end{itemize}
+
+\subsection{Rules \& scoring}
+
+\begin{itemize}
+    \item \textbf{Brand} and \textbf{class/type} use fuzzy matching (rapidfuzz) with configurable thresholds (pass $\geq$90\%, needs review $\geq$70\%).
+    \item \textbf{Government warning} must contain required wording; semantic checks allow minor OCR variations.
+    \item \textbf{Net contents} are validated against a fixed list of standard-of-fill values (27 CFR 5.203) in config.
+    \item \textbf{Origin} rules: bottler required; country of origin required when \texttt{imported=true}.
+    \item \textbf{Conditional statements} (sulfites, FD\&C Yellow No.\ 5, carmine, wood treatment, age, neutral spirits) are required when application flags say so.
+\end{itemize}
+
+\subsection{Data \& persistence}
+
+\begin{itemize}
+    \item \textbf{Batch results} are in-session only; no persistence.
+    \item \textbf{Approve flow} is persisted in \texttt{data/applications.json} (gitignored).
+\end{itemize}
+
+\section{Limitations}
+
+\subsection{OCR \& extraction}
+
+\begin{itemize}
+    \item \textbf{No font-size detection} --- emphasized warning cannot be checked for font size.
+    \item \textbf{Standard of fill} --- fixed list in config, not full CFR logic.
+    \item \textbf{Handwritten / low-quality images} --- OCR may fail or produce poor output.
+    \item \textbf{Non-standard layouts} --- unusual label designs may confuse extraction heuristics.
+    \item \textbf{Class/type} --- relies on keyword list; novel or regional variants may not match.
+\end{itemize}
+
+\subsection{Rules}
+
+\begin{itemize}
+    \item \textbf{Emphasized warning} --- only checks for caps and distinct block; no font-size enforcement.
+    \item \textbf{Conditional statements} --- regex-based; complex phrasing may not match.
+    \item \textbf{Age statement} --- whisky age threshold (4 years) is config-driven; no full CFR 5.40(a) logic.
+\end{itemize}
+
+\subsection{System}
+
+\begin{itemize}
+    \item \textbf{No COLA integration} --- application data is manual; no lookup of approved labels.
+    \item \textbf{Batch} --- sequential processing; no parallelization.
+    \item \textbf{Test labels} --- sample images are provided; no built-in benchmark dataset.
+\end{itemize}
+
+\section{Extensibility}
+
+\begin{itemize}
+    \item \textbf{OCR:} Swap \texttt{ocr.run\_ocr()} for another engine (e.g.\ cloud API).
+    \item \textbf{Rules:} Extend \texttt{rules/engine.py} and \texttt{config/rules.yaml} for new categories or thresholds.
+    \item \textbf{API:} Expose \texttt{pipeline.run\_pipeline()} for COLA or external integration.
+\end{itemize}
+
+\section{File Structure}
+
+\begin{lstlisting}
+app.py                 # Entry point (streamlit run app.py)
+src/
+  app.py               # Streamlit UI
+  ocr.py               # Tesseract + preprocessing
+  extraction.py        # Field extraction from OCR blocks
+  pipeline.py          # Orchestration: OCR -> extraction -> rules -> scoring
+  scoring.py           # Overall status from rule results
+  storage.py           # Local JSON for approve flow
+  ui_utils.py          # UI helpers
+  rules/
+    engine.py          # Rule evaluation (identity, alcohol, warning, origin, other)
+config/
+  rules.yaml           # Thresholds, patterns, beverage types, conditionals
+sample_data/
+  batch_example.csv    # Example batch CSV
+  test_1.jpg...        # Sample label images
+  test_images.zip      # Same images for batch ZIP upload
+\end{lstlisting}
+
+\section{References}
+
+\begin{itemize}
+    \item 27 CFR Part 4 (Wine labels)
+    \item 27 CFR Part 5 (Distilled spirits labels)
+    \item 27 CFR Part 7 (Malt Beverage labels)
+    \item TTB Beverage Alcohol Manual (BAM)
+\end{itemize}
+
+\end{document}

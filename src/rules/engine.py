@@ -454,9 +454,14 @@ def _normalize_ocr_for_text(s: str) -> str:
     return s
 
 
+def _fix_leading_one_ocr(s: str) -> str:
+    """Fix OCR: I or [ immediately before a digit is likely 1 (e.g. I2 → 12, [2 → 12)."""
+    return re.sub(r"[I\[](?=\d)", "1", s)
+
+
 def _normalize_ocr_for_numeric(s: str) -> str:
     """Normalize OCR confusables in numeric strings. Maps letter-like chars to digits."""
-    s = _norm(s)
+    s = _fix_leading_one_ocr(_norm(s))
     for char, canonical in _OCR_NUMERIC_NORMALIZE.items():
         s = s.replace(char, canonical)
     return s
@@ -465,6 +470,7 @@ def _normalize_ocr_for_numeric(s: str) -> str:
 def _normalize_numeric_sequences(s: str) -> str:
     """Normalize OCR confusables only within digit sequences (e.g. '75O mL' -> '750 mL').
     Avoids corrupting units like 'fl' in '12 fl oz' (l only normalized when adjacent to digits)."""
+    s = _fix_leading_one_ocr(s)
     def _replace_in_number(match: re.Match) -> str:
         part = match.group(0)
         for char, canonical in _OCR_NUMERIC_NORMALIZE.items():

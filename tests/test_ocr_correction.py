@@ -8,7 +8,7 @@ _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-from src.rules.engine import _is_ocr_confusable, _net_contents_to_ml, run_rules
+from src.rules.engine import _fix_leading_one_ocr, _is_ocr_confusable, _net_contents_to_ml, run_rules
 
 
 class TestOCRConfusable:
@@ -105,6 +105,13 @@ class TestOCRConfusableInRules:
         """Net contents '75O mL' should parse as 750 mL."""
         assert _net_contents_to_ml("75O mL") == 750
         assert _net_contents_to_ml("7S0 mL") == 750
+
+    def test_i_or_bracket_before_digit_becomes_one(self):
+        """I or [ before a digit is likely 1 (I2→12, [2→12)."""
+        assert _fix_leading_one_ocr("I2") == "12"
+        assert _fix_leading_one_ocr("[2") == "12"
+        assert _fix_leading_one_ocr("I5%") == "15%"
+        assert _net_contents_to_ml("I2 fl oz") == 355  # 12 fl oz ≈ 355 mL
 
     def test_smart_match_ocr_normalized_exact(self):
         """Brand 'Bacard1' vs 'Bacardi' should match via OCR normalization."""

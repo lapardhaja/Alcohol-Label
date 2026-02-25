@@ -191,7 +191,7 @@ _SAMPLE_PRESETS = {
     },
     "test_6 — ABC Winery (Wine)": {
         "brand_name": "ABC Winery",
-        "class_type": "Merlot",
+        "class_type": "American Red Wine",
         "alcohol_pct": "13",
         "proof": "",
         "net_contents_ml": "750 mL",
@@ -1334,39 +1334,40 @@ def _render_single_result(
             st.image(image_bytes, caption="Label image")
 
     with col_tabs:
-        tab_fields, tab_raw = st.tabs(["Extracted Fields", "Raw OCR"])
+        with st.expander("Show extracted fields & raw OCR", expanded=False):
+            tab_fields, tab_raw = st.tabs(["Extracted Fields", "Raw OCR"])
 
-        with tab_fields:
-            extracted = result.get("extracted", {})
-            _render_comparison_table(extracted, result)
+            with tab_fields:
+                extracted = result.get("extracted", {})
+                _render_comparison_table(extracted, result)
 
-        with tab_raw:
-            try:
-                import pytesseract
+            with tab_raw:
+                try:
+                    import pytesseract
 
-                tesseract_ver = pytesseract.get_tesseract_version()
-                st.caption(f"Tesseract {tesseract_ver}")
-            except Exception:
-                pass
-            ocr_blocks = result.get("ocr_blocks", [])
-            if img is not None:
-                with st.expander("Preprocessing (images fed to Tesseract)"):
-                    from src.ocr import get_preprocessing_preview
+                    tesseract_ver = pytesseract.get_tesseract_version()
+                    st.caption(f"Tesseract {tesseract_ver}")
+                except Exception:
+                    pass
+                ocr_blocks = result.get("ocr_blocks", [])
+                if img is not None:
+                    with st.expander("Preprocessing (images fed to Tesseract)"):
+                        from src.ocr import get_preprocessing_preview
 
-                    orig, sharpened, binary = get_preprocessing_preview(img)
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        st.image(orig, caption="1. Resized original (psm 3)")
-                    with c2:
-                        st.image(sharpened, caption="2. CLAHE + sharpen (psm 6)")
-                    with c3:
-                        st.image(binary, caption="3. Binarized (psm 6)")
-            if ocr_blocks:
-                st.caption(f"{len(ocr_blocks)} text blocks detected.")
-                for b in ocr_blocks:
-                    st.text(b.get("text", ""))
-            else:
-                st.info("No OCR blocks detected.")
+                        orig, sharpened, binary = get_preprocessing_preview(img)
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            st.image(orig, caption="1. Resized original (psm 3)")
+                        with c2:
+                            st.image(sharpened, caption="2. CLAHE + sharpen (psm 6)")
+                        with c3:
+                            st.image(binary, caption="3. Binarized (psm 6)")
+                if ocr_blocks:
+                    st.caption(f"{len(ocr_blocks)} text blocks detected.")
+                    for b in ocr_blocks:
+                        st.text(b.get("text", ""))
+                else:
+                    st.info("No OCR blocks detected.")
 
 
 def _government_warning_display(raw: str) -> str:

@@ -821,9 +821,15 @@ def _extract_abv_proof(blocks: list[dict]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _fix_leading_one_ocr(s: str) -> str:
+    """Fix OCR: I or [ before a digit is likely 1 (e.g. I2→12, [2→12)."""
+    return re.sub(r"[I\[](?=\d)", "1", s)
+
+
 def _extract_net_contents(blocks: list[dict]) -> dict[str, Any]:
     # Check compound expressions first (e.g. "1 PINT 8 FL OZ")
     combined = " ".join(b.get("text", "") for b in blocks)
+    combined = _fix_leading_one_ocr(combined)
     mc = _COMPOUND_NET_RE.search(combined)
     if mc:
         bbox = None
@@ -837,11 +843,11 @@ def _extract_net_contents(blocks: list[dict]) -> dict[str, Any]:
         return {"value": f"{total_oz} fl oz", "bbox": bbox}
 
     for b in blocks:
-        m = _NET_RE.search(b.get("text", ""))
+        m = _NET_RE.search(_fix_leading_one_ocr(b.get("text", "")))
         if m:
             return _format_net(m, b.get("bbox"))
 
-    m = _NET_RE.search(combined)
+    m = _NET_RE.search(combined)  # combined already fixed above
     if m:
         bbox = None
         num = m.group(1)

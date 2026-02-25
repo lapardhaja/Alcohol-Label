@@ -81,7 +81,7 @@ EXPECTED = {
     },
     "test_6": {
         "brand_name": "ABC Winery",
-        "class_type": "Merlot",
+        "class_type": "American Red Wine",
         "alcohol_pct": "13",
         "proof": "",
         "net_contents_ml": "750 mL",

@@ -1449,18 +1449,6 @@ def _batch_screen():
                         app_data = _row_to_app_data(row)
                         img_bytes = _find_image_for_label(name_to_bytes, label_id)
                         if img_bytes is None:
-                            results.append(
-                                {
-                                    "label_id": label_id,
-                                    "overall_status": "Critical issues",
-                                    "fail_count": 1,
-                                    "brand_name": app_data.get("brand_name", ""),
-                                    "class_type": app_data.get("class_type", ""),
-                                    "result": None,
-                                    "error": f"No image found for label_id '{label_id}'.",
-                                    "app_data": app_data,
-                                }
-                            )
                             continue
                         try:
                             r = run_pipeline(img_bytes, app_data)
@@ -1500,6 +1488,23 @@ def _batch_screen():
 
     if batch_results:
         batch_decisions = st.session_state.get("batch_decisions", {})
+        scroll_to_table = st.session_state.pop("batch_scroll_to_table", False)
+
+        if scroll_to_table:
+            st.markdown('<div id="batch-table-anchor"></div>', unsafe_allow_html=True)
+            st.components.v1.html(
+                """
+                <script>
+                (function() {
+                    try {
+                        var el = window.parent.document.getElementById('batch-table-anchor');
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    } catch (e) {}
+                })();
+                </script>
+                """,
+                height=0,
+            )
 
         df_display = pd.DataFrame(
             [
@@ -1527,18 +1532,18 @@ def _batch_screen():
         for r in batch_results:
             lid = r["label_id"]
             dec = batch_decisions.get(lid)
-            c1, c2, c3, c4, c5, c6 = st.columns([1.2, 2, 2, 1.2, 0.8, 2])
-            with c1:
+            cols = st.columns([1.2, 2, 2, 1.2, 0.8, 2, 1.2])
+            with cols[0]:
                 st.text(lid)
-            with c2:
+            with cols[1]:
                 st.text(r["brand_name"])
-            with c3:
+            with cols[2]:
                 st.text(r["class_type"])
-            with c4:
+            with cols[3]:
                 st.text(r["overall_status"])
-            with c5:
+            with cols[4]:
                 st.text(str(r["fail_count"]))
-            with c6:
+            with cols[5]:
                 if dec == "approved":
                     st.markdown("**Approved**")
                     if st.button("Undo", key=f"batch_undo_{lid}"):
@@ -1564,29 +1569,41 @@ def _batch_screen():
                         d[lid] = "declined"
                         st.session_state["batch_decisions"] = d
                         st.rerun()
+            with cols[6]:
+                if st.button("Show details", key=f"batch_show_{lid}"):
+                    st.session_state["batch_selected_id"] = lid
+                    st.rerun()
             st.divider()
 
-        st.markdown("**View detail**")
-        label_ids = [r["label_id"] for r in batch_results]
-        chosen = st.selectbox("Select a label", label_ids, key="batch_select")
-        if st.button("Show detail", key="batch_show_detail"):
-            st.session_state["batch_selected_id"] = chosen
-            st.rerun()
-
-    if selected_id and batch_results:
-        st.divider()
-        st.subheader(f"Detail: {selected_id}")
-        match = next((r for r in batch_results if r["label_id"] == selected_id), None)
-        if match and match.get("result"):
-            _render_single_result(
-                match["result"], None, app_data=match.get("app_data") or {}
+        if selected_id and batch_results:
+            st.markdown('<div id="batch-detail-anchor"></div>', unsafe_allow_html=True)
+            st.components.v1.html(
+                """
+                <script>
+                (function() {
+                    try {
+                        var el = window.parent.document.getElementById('batch-detail-anchor');
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    } catch (e) {}
+                })();
+                </script>
+                """,
+                height=0,
             )
-        elif match and match.get("error"):
-            st.error(match["error"])
-        if st.button("Back to batch table", key="batch_back"):
-            if "batch_selected_id" in st.session_state:
-                del st.session_state["batch_selected_id"]
-            st.rerun()
+            st.divider()
+            st.subheader(f"Detail: {selected_id}")
+            match = next((r for r in batch_results if r["label_id"] == selected_id), None)
+            if match and match.get("result"):
+                _render_single_result(
+                    match["result"], None, app_data=match.get("app_data") or {}
+                )
+            elif match and match.get("error"):
+                st.error(match["error"])
+            if st.button("Back to batch table", key="batch_back"):
+                st.session_state["batch_scroll_to_table"] = True
+                if "batch_selected_id" in st.session_state:
+                    del st.session_state["batch_selected_id"]
+                st.rerun()
 
     if not batch_results:
         st.markdown(

@@ -21,5 +21,5 @@ echo.
 echo Setup complete. Install Tesseract OCR if not already:
 echo   https://github.com/UB-Mannheim/tesseract/wiki
 echo.
-echo Run the app with: run.bat (or python run.py on any OS)
+echo Run the app with: run.bat (or python scripts/run.py on any OS)
 pause

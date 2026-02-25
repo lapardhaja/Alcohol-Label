@@ -159,6 +159,10 @@ Label image + Application data
 
 ```
 app.py                 # Entry point (streamlit run app.py)
+scripts/
+  run.py               # Cross-platform launcher
+  setup.py             # Cross-platform setup
+  compare_test_images.py
 src/
   app.py               # Streamlit UI
   ocr.py               # Tesseract + preprocessing

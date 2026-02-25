@@ -18,8 +18,8 @@ Requires **Python 3.10+** and **Tesseract OCR**.
 ```bash
 git clone <your-repo-url>
 cd "Alcohol Label"
-python setup.py    # or python3 on Mac/Linux
-python run.py     # start the app
+python scripts/setup.py    # or python3 on Mac/Linux
+python scripts/run.py      # start the app
 ```
 
 **Option B — Platform scripts:**
@@ -46,7 +46,7 @@ playwright install
 ### 4. Run
 
 ```bash
-python run.py
+python scripts/run.py
 # or: streamlit run app.py (with venv activated)
 ```
 

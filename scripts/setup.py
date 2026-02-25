@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Cross-platform setup. Run: python setup.py"""
+"""Cross-platform setup. Run from project root: python scripts/setup.py"""
 import os
 import platform
 import subprocess
 import sys
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 def venv_python():
     if platform.system() == "Windows":
@@ -11,6 +15,7 @@ def venv_python():
     return os.path.join(".venv", "bin", "python")
 
 def main():
+    os.chdir(_PROJECT_ROOT)
     print("Creating virtual environment...")
     subprocess.run([sys.executable, "-m", "venv", ".venv"], check=True)
 
@@ -25,7 +30,7 @@ def main():
         print("  sudo apt install tesseract-ocr")
     else:
         print("  https://github.com/UB-Mannheim/tesseract/wiki")
-    print("\nRun the app with: python run.py")
+    print("\nRun the app with: python scripts/run.py")
 
 if __name__ == "__main__":
     main()

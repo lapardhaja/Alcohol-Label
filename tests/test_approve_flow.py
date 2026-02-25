@@ -37,13 +37,14 @@ def main():
             screenshot(page, "01_app_loaded")
             report.append("   OK: App loaded")
 
-            report.append("2. Clicking Create new application...")
-            create_btn = page.get_by_role("button", name="Create new application")
-            create_btn.wait_for(state="visible", timeout=10000)
-            create_btn.click()
-            time.sleep(1.5)
-            screenshot(page, "02_after_create_new")
-            report.append("   OK: Create new clicked")
+            report.append("2. Selecting preset test_1...")
+            preset_select = page.locator('[data-testid="stSelectbox"]').first
+            preset_select.click()
+            time.sleep(0.5)
+            page.get_by_role("option", name="test_1 — ABC Distillery (Spirits)").click()
+            time.sleep(1)
+            screenshot(page, "02_after_preset")
+            report.append("   OK: Preset selected")
 
             report.append("3. Uploading test image...")
             test_image = _root / "sample_data" / "test_1.jpg"
@@ -56,38 +57,29 @@ def main():
             else:
                 report.append("   SKIP: test_1.jpg not found")
 
-            report.append("4. Selecting preset test_1...")
-            preset_select = page.locator('[data-testid="stSelectbox"]').first
-            preset_select.click()
-            time.sleep(0.5)
-            page.get_by_text("test_1", exact=False).first.click()
-            time.sleep(1)
-            screenshot(page, "04_after_preset")
-            report.append("   OK: Preset selected")
-
-            report.append("5. Clicking Check label...")
+            report.append("4. Clicking Check label...")
             check_btn = page.get_by_role("button", name="Check label")
             check_btn.wait_for(state="visible", timeout=10000)
             check_btn.click()
             time.sleep(5)
-            screenshot(page, "05_after_check_label")
+            screenshot(page, "04_after_check_label")
             report.append("   OK: Check label clicked")
 
             if page.get_by_text("OCR unavailable").count() > 0:
                 report.append("   WARNING: OCR unavailable")
 
-            report.append("6. Clicking Approve...")
+            report.append("5. Clicking Approve...")
             approve_btn = page.get_by_role("button", name="Approve")
             if approve_btn.count() == 0:
                 report.append("   FAIL: Approve button not found!")
-                screenshot(page, "06_approve_not_found")
+                screenshot(page, "05_approve_not_found")
             else:
                 approve_btn.first.click()
                 time.sleep(2)
-                screenshot(page, "07_after_approve_click")
+                screenshot(page, "06_after_approve_click")
                 report.append("   OK: Approve clicked")
 
-            report.append("7. Checking Approved list...")
+            report.append("6. Checking Approved list...")
             page_content = page.content()
             has_approved = "Approved" in page_content
             has_abc = "ABC Distillery" in page_content or "ABC" in page_content
@@ -96,10 +88,10 @@ def main():
 
             if has_approved and (has_abc or approved_visible):
                 report.append("   OK: App shows Approved state")
-                screenshot(page, "08_on_approved_list")
+                screenshot(page, "07_on_approved_list")
             else:
                 report.append("   CHECK: Verify manually")
-                screenshot(page, "08_final_state")
+                screenshot(page, "07_final_state")
 
         except Exception as e:
             report.append(f"   ERROR: {e}")

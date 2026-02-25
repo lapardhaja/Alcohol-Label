@@ -103,7 +103,7 @@ Data: Batch results are in-session only. Approve flow is persisted in `data/appl
 
 ## Limitations
 
-OCR: No font-size detection, so emphasized warning cannot be checked for size. Standard of fill uses a fixed list in config, not full CFR logic. Handwritten or low-quality images may fail. Non-standard layouts can confuse extraction. Class/type relies on a keyword list; novel variants may not match.
+OCR: Runs locally (no external API) for speed and privacy; this design trades some accuracy for throughput, so occasional misreads may occur on challenging labels. No font-size detection, so emphasized warning cannot be checked for size. Standard of fill uses a fixed list in config, not full CFR logic. Handwritten or low-quality images may fail. Non-standard layouts can confuse extraction. Class/type relies on a keyword list; novel variants may not match.
 
 Rules: Emphasized warning is checked for caps and distinct block only; no font-size enforcement. Conditional statements are regex-based; complex phrasing may not match. Age statement uses a config-driven whisky threshold (4 years), not full CFR 5.40(a).
 

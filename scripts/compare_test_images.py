@@ -56,7 +56,7 @@ EXPECTED = {
     "test_4": {
         "brand_name": "Malt & Hop Brewery",
         "class_type": "Barleywine Ale",
-        "alcohol_pct": "9",
+        "alcohol_pct": "",
         "proof": "",
         "net_contents_ml": "12 fl oz",
         "bottler_name": "Malt & Hop Brewery",

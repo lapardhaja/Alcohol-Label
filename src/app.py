@@ -108,7 +108,7 @@ _SAMPLE_PRESETS = {
     "test_4 — Malt & Hop Brewery (Beer)": {
         "brand_name": "Malt & Hop Brewery",
         "class_type": "Barleywine Ale",
-        "alcohol_pct": "9",
+        "alcohol_pct": "",
         "proof": "",
         "net_contents_ml": "12 fl oz",
         "bottler_name": "Malt & Hop Brewery",
@@ -1156,7 +1156,7 @@ def _batch_screen():
             "label_id,brand_name,class_type,alcohol_pct,proof,net_contents_ml,bottler_name,bottler_city,bottler_state,imported,country_of_origin,beverage_type\n"
             "test_1,ABC Distillery,Single Barrel Straight Rye Whisky,45,90,750 mL,ABC Distillery,Frederick,MD,false,,Distilled Spirits\n"
             "test_2,Malt & Hop Brewery,Pale Ale,5,,24 fl oz,Malt & Hop Brewery,Hyattsville,MD,false,,Beer / Malt Beverage\n"
-            "test_4,Malt & Hop Brewery,Barleywine Ale,9,,12 fl oz,Malt & Hop Brewery,,,false,,Beer / Malt Beverage\n"
+            "test_4,Malt & Hop Brewery,Barleywine Ale,,,12 fl oz,Malt & Hop Brewery,,,false,,Beer / Malt Beverage\n"
             "test_7,Woodford Reserve,Bourbon Whiskey,45.2,90.4,375 mL,Woodford Reserve,,KY,false,,Distilled Spirits",
             language=None,
         )

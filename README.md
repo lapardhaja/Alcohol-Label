@@ -16,8 +16,8 @@ Requires **Python 3.10+** and **Tesseract OCR**.
 
 **Option A — Python (cross-platform):**
 ```bash
-git clone <your-repo-url>
-cd "Alcohol Label"
+git clone https://github.com/lapardhaja/Alcohol-Label.git
+cd Alcohol-Label
 python scripts/setup.py    # or python3 on Mac/Linux
 python scripts/run.py      # start the app
 ```

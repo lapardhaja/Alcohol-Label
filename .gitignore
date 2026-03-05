@@ -12,6 +12,9 @@ ENV/
 *.log
 tests/approve_flow_screenshots/
 
+# Deployment: sources.list triggers apt-add-repository which fails (sudo) in headless envs
+sources.list
+
 # IDE / OS
 .idea/
 .vscode/

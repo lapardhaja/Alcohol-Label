@@ -86,7 +86,7 @@ Browser opens at `http://localhost:8501`.
 
 ## Deploy (Streamlit Cloud)
 
-Uses `packages.txt` and `sources.list` to install Tesseract 5.3. Point the app at this repo, run `python -m streamlit run app.py` from root.
+Uses `packages.txt` to install Tesseract from Streamlit Cloud's default repos (Tesseract 5.5 on Debian Trixie). Point the app at this repo, run `python -m streamlit run app.py` from root.
 
 ---
 

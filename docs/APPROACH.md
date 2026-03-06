@@ -85,7 +85,7 @@ Label image + Application data
 
 </div>
 
-Deployment: Streamlit Cloud uses `packages.txt` and `sources.list` to install Tesseract 5.3 on Debian (bookworm).
+Deployment: Streamlit Cloud uses `packages.txt` to install Tesseract from default repos (Tesseract 5.5 on Debian Trixie).
 
 ---
 

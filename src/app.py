@@ -1193,7 +1193,9 @@ def _render_validation_matrix(rows: list[dict], result_key: str = "default") -> 
 
     # Show on label: dropdown to highlight a field's bbox on the image
     highlight_key = f"highlight_bbox_{result_key}"
-    options_with_bbox = [(r["Criteria"], r["bbox_ref"]) for r in rows if r.get("bbox_ref")]
+    options_with_bbox = [
+        (r["Criteria"], r["bbox_ref"]) for r in rows if r.get("bbox_ref")
+    ]
     if options_with_bbox:
         labels = ["(none)"] + [o[0] for o in options_with_bbox]
         bboxes = [None] + [o[1] for o in options_with_bbox]
@@ -1335,7 +1337,9 @@ def _render_single_result(
     )
     st.subheader("Validation")
     if result_key is None:
-        result_key = (approve_reject.get("selected_id") if approve_reject else None) or "single"
+        result_key = (
+            approve_reject.get("selected_id") if approve_reject else None
+        ) or "single"
     result_key = str(result_key)
     _render_validation_matrix(matrix_rows, result_key=result_key)
     st.divider()
@@ -1355,7 +1359,9 @@ def _render_single_result(
             if highlight_bbox:
                 from src.ui_utils import draw_bbox_on_image
 
-                display_img = draw_bbox_on_image(img, highlight_bbox, color="red", width=4)
+                display_img = draw_bbox_on_image(
+                    img, highlight_bbox, color="red", width=4
+                )
             st.image(display_img, caption="Label image")
         elif image_bytes:
             st.image(image_bytes, caption="Label image")
@@ -1559,7 +1565,10 @@ def _batch_screen():
         with header_cols[3]:
             st.markdown("**Status**")
         with header_cols[4]:
-            st.markdown('<span style="white-space: nowrap;">**# of Failed Rules**</span>', unsafe_allow_html=True)
+            st.markdown(
+                '<span style="white-space: nowrap;">**# of Failed Rules**</span>',
+                unsafe_allow_html=True,
+            )
         with header_cols[5]:
             st.markdown("**Decision**")
         with header_cols[6]:
@@ -1631,7 +1640,9 @@ def _batch_screen():
             )
             st.divider()
             st.subheader(f"Detail: {selected_id}")
-            match = next((r for r in batch_results if r["label_id"] == selected_id), None)
+            match = next(
+                (r for r in batch_results if r["label_id"] == selected_id), None
+            )
             if match and match.get("result"):
                 _render_single_result(
                     match["result"],
